@@ -13,12 +13,22 @@ Marketplace de plugins de Claude Code de Outsiders. De momento trae uno: **Mi Es
 
 ## Instalar
 
-En Claude Code:
+Abre `%USERPROFILE%\.claude\settings.json` (donde ya está video-studio) y añade estas dos entradas, cada una
+dentro de su bloque:
 
+```json
+"enabledPlugins": {
+  "mi-estudio@outsiders-studio": true
+},
+"extraKnownMarketplaces": {
+  "outsiders-studio": {
+    "source": { "source": "git", "url": "https://github.com/apocalipnos/outsiders-studio.git" }
+  }
+}
 ```
-/plugin marketplace add apocalipnos/outsiders-studio
-/plugin install mi-estudio@outsiders-studio
-```
+
+(Ojo con las comas: cada entrada nueva va separada de la anterior por una coma.) O, en una terminal con `claude`:
+`/plugin marketplace add apocalipnos/outsiders-studio` y `/plugin install mi-estudio@outsiders-studio`.
 
 Reinicia Claude Code y di "abre mi estudio". La primera vez que se abre instala los estilos del equipo (Ultracinico)
 en tu video-studio.
