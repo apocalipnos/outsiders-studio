@@ -1,0 +1,31 @@
+{
+ "name": "Ultracinico",
+ "slug": "ultracinico",
+ "created": "2026-10-25",
+ "updated": "2026-10-25",
+ "caption": {
+  "font": "DM Serif Display",
+  "weight": 400,
+  "case": "as-typed",
+  "size": 42,
+  "line_height": 1.1,
+  "tracking": 0,
+  "color": "#FFF238",
+  "accent": "#FFF238",
+  "mark": "accent",
+  "lit": "none",
+  "shadow": "2px 4px 6px rgba(0,0,0,.85), 0 2px 14px rgba(0,0,0,.45)",
+  "words": 4,
+  "chars": 40,
+  "lines": 2,
+  "position": "lower",
+  "align": "center",
+  "entrance": "none",
+  "exit": "none",
+  "css": ".cu .w.m{font-style:italic}"
+ },
+ "css": "\n@font-face{font-family:'Barlow Condensed';font-weight:800;font-style:normal;font-display:block;src:url('assets/fonts/BarlowCondensed-800-normal.woff2')}\n/* Tipografía B: titles with a soft neon glow. Colour: .cine-title (white), .cine-title.y (#FFF238), or style='--c:#hex;--g:<hex at .7>;--g2:<hex at .35>' */\n.cine-title{--c:#FFFFFF;--g:rgba(255,255,255,.7);--g2:rgba(255,255,255,.35);position:absolute;left:0;width:1080px;text-align:center;\n  font-family:'Barlow Condensed';font-weight:800;text-transform:uppercase;font-size:97px;line-height:.98;letter-spacing:-.015em;\n  color:var(--c);text-shadow:0 0 6px var(--g),0 0 18px var(--g),0 0 36px var(--g2);filter:blur(.3px)}\n.cine-title.y{--c:#FFF238;--g:rgba(255,242,56,.75);--g2:rgba(255,242,56,.4)}\n.cine-title .ln{display:block;margin:0 auto;max-width:766px}\n/* the black gradient behind every title, from the top edge down past the title */\n.cine-grad{position:absolute;left:0;top:0;width:1080px;height:760px;\n  background:linear-gradient(to bottom,rgba(0,0,0,.78) 0%,rgba(0,0,0,.55) 38%,rgba(0,0,0,0) 100%)}\n/* H2: DM Serif Display italic with the same soft neon glow as the H1 (yellow by default; .w = white; any colour with\n   style='--c:#hex;--g:<hex at .7>;--g2:<hex at .35>'). Sits with an H1, e.g. a kicker line above it. */\n.cine-h2{--c:#FFF238;--g:rgba(255,242,56,.7);--g2:rgba(255,242,56,.35);position:absolute;left:0;width:1080px;text-align:center;\n  font-family:'DM Serif Display';font-weight:400;font-style:italic;font-size:80px;line-height:1;letter-spacing:-.01em;\n  color:var(--c);text-shadow:0 0 6px var(--g),0 0 18px var(--g),0 0 36px var(--g2);filter:blur(.3px)}\n.cine-h2.w{--c:#FFFFFF;--g:rgba(255,255,255,.7);--g2:rgba(255,255,255,.35)}\n.cine-h2 .r{font-style:normal}\n",
+ "pace": "cortes al ritmo de lo que dice; el apuntador fuera siempre",
+ "sound": "sin música; sonidos suaves solo si el vídeo lo pide",
+ "line": "Cuenta de cine: títulos Barlow neón con degradado y subtítulos DM Serif amarillos"
+}

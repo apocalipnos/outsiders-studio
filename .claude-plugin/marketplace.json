@@ -1,0 +1,18 @@
+{
+  "name": "outsiders-studio",
+  "owner": {
+    "name": "Outsiders",
+    "email": "work@losoutsiders.com"
+  },
+  "metadata": {
+    "description": "Herramientas de edición de vídeo de Outsiders para Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "mi-estudio",
+      "source": "./plugins/mi-estudio",
+      "description": "Mi Estudio: formatos de vídeo, estilos filtrados y línea de tiempo tipo CapCut encima de video-studio (Creator Studio).",
+      "version": "1.0.0"
+    }
+  ]
+}

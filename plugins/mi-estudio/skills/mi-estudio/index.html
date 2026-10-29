@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mi Estudio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="/mi/timeline.css" rel="stylesheet">
+<script src="/mi/timeline.js"></script>
+<!-- módulos de la Edición (capas, audio...): uno por archivo, se enchufan con Timeline.use (SKILL.md, "Pestaña Edición") -->
+<script src="/mi/herramientas/capas.js"></script>
+<script src="/mi/herramientas/audio.js"></script>
+<style>
+  :root {
+    --bg: #0a0b0f; --card: #12141b; --card2: #181b24; --b1: #232734; --b2: #333a4d;
+    --t1: #f1f3f8; --t2: #8a91a5; --t3: #545b70;
+    --a: #1A5DF1; --ad: rgba(26,93,241,.14); --ag: rgba(26,93,241,.35); --ok: #22c55e; --red: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--t1); font: 15px/1.45 'Inter Tight', system-ui, sans-serif; padding-bottom: 120px; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(10,11,15,.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--b1); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 20px; }
+  .top { display: flex; align-items: center; gap: 16px; padding: 18px 0 12px; }
+  h1 { font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -.02em; }
+  h1 span { color: var(--a); }
+  .sub { color: var(--t2); font-size: 13px; }
+  .grow { flex: 1; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--b2); background: var(--card2); color: var(--t1); padding: 9px 16px; font-weight: 600; }
+  button:hover { border-color: var(--t3); }
+  button.pri { background: var(--a); border-color: var(--a); }
+  button.pri:hover { filter: brightness(1.1); }
+  button.on { background: var(--ad); border-color: var(--a); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  .tabs { display: flex; gap: 6px; padding-bottom: 12px; }
+  .tab { background: none; border-color: transparent; color: var(--t2); }
+  .tab.act { background: var(--card2); border-color: var(--b1); color: var(--t1); }
+  .tab b { color: var(--t3); font-weight: 600; margin-left: 4px; }
+  .note { margin: 18px 0 0; padding: 12px 16px; border-radius: 12px; background: var(--ad); border: 1px solid var(--ag); color: var(--t1); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; margin-top: 20px; }
+  .card { position: relative; background: var(--card); border: 1px solid var(--b1); border-radius: 14px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; }
+  .card:hover { border-color: var(--b2); transform: translateY(-2px); }
+  .card.sel { border-color: var(--a); box-shadow: 0 0 0 2px var(--a), 0 8px 30px var(--ag); }
+  .card.out { opacity: .38; }
+  .card.out:hover { opacity: .7; }
+  .media { aspect-ratio: 9/16; background: #000; position: relative; }
+  .media video, .media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .media .plain { position: absolute; inset: 0; display: grid; place-items: center; color: var(--t3); font-size: 13px; padding: 20px; text-align: center; }
+  .info { padding: 10px 12px 12px; }
+  .name { font-weight: 700; font-size: 15px; }
+  .line { color: var(--t2); font-size: 12.5px; margin-top: 3px; }
+  .lab { color: var(--t3); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-top: 6px; }
+  .chip { position: absolute; top: 10px; left: 10px; z-index: 2; font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 99px; background: rgba(0,0,0,.65); color: var(--t1); }
+  .chip.yes { background: var(--a); }
+  .chip.sel { background: var(--a); left: auto; right: 10px; }
+  .chip.st-receta { background: #f59e0b; color: #111; }
+  .chip.st-validado { background: #3b82f6; }
+  .chip.st-programado { background: #22c55e; color: #111; }
+  .chip.soon { background: rgba(0,0,0,.65); color: var(--t2); }
+  .fdet { margin-top: 22px; background: var(--card); border: 1px solid var(--b1); border-radius: 14px; padding: 18px 22px; }
+  .fdet .fst { color: var(--t2); font-weight: 500; font-size: 14px; }
+  .fdet h3 { margin: 0 0 10px; font-size: 18px; }
+  .fdet .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .fdet h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--t3); }
+  .fdet ul, .fdet ol { margin: 0; padding-left: 18px; color: var(--t2); font-size: 14px; line-height: 1.6; }
+  @media (max-width: 640px) { .fdet .cols { grid-template-columns: 1fr; } }
+  .empty { margin-top: 40px; text-align: center; color: var(--t2); padding: 50px 20px; border: 1px dashed var(--b2); border-radius: 16px; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: rgba(18,20,27,.96); backdrop-filter: blur(10px); border-top: 1px solid var(--b1); }
+  .bar .wrap { display: flex; align-items: center; gap: 16px; padding-top: 14px; padding-bottom: 14px; }
+  .sum { font-size: 13.5px; color: var(--t2); }
+  .sum b { color: var(--t1); font-weight: 600; }
+  .toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(20px); opacity: 0; background: var(--t1); color: var(--bg); font-weight: 600; padding: 10px 18px; border-radius: 10px; transition: .25s; z-index: 9; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateX(-50%); }
+  .toast.err { background: var(--red); color: #fff; }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 16px; }
+    .top { flex-wrap: wrap; }
+    .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .bar .wrap { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>Mi <span>Estudio</span></h1>
+        <div class="sub" id="modeSub"></div>
+      </div>
+      <div class="grow"></div>
+      <button id="editBtn"></button>
+    </div>
+    <div class="tabs" id="tabs"></div>
+  </div>
+</header>
+<main class="wrap">
+  <div id="note"></div>
+  <div id="grid" class="grid"></div>
+  <div id="fdetail"></div>
+  <div id="tl" hidden></div>
+</main>
+<div class="bar">
+  <div class="wrap">
+    <div class="sum grow" id="sum"></div>
+    <button class="pri" id="saveBtn">Guardar</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  var TABS = [['formatos', 'Formatos'], ['styles', 'Estilos'], ['captions', 'Subtítulos'], ['effects', 'Efectos']];
+  var ESTADOS = { receta: 'Receta · sin validar', validado: 'Validado · falta programar', programado: 'Programado ✓' };
+  var PREPTABS = [['formatos', '1 · Formato'], ['styles', '2 · Estilo'], ['captions', '3 · Subtítulos'], ['effects', '4 · Efectos']];
+  var PREPORDER = PREPTABS.map(function (t) { return t[0]; });
+  var PTABS = [['formatos', '1 · Formato'], ['captions', '2 · Subtítulos'], ['effects', '3 · Efectos'], ['timeline', '4 · Edición'], ['styles', 'Estilos']];
+  var S = { cat: null, filtro: { styles: [], captions: [], effects: [] }, tab: 'styles', edit: false, project: null, tlMounted: false, formato: null, prep: false,
+            sel: { mode: 'custom', style: null, captionStyle: null, effects: [] } };
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
+  var noop = function () {};
+
+  function api(url, body) {
+    var opt = body === undefined ? { cache: 'no-store' }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+    return fetch(url, opt).then(function (r) {
+      return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; });
+    });
+  }
+
+  function toast(msg, err) {
+    var t = $('toast');
+    t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+    clearTimeout(toast.t); toast.t = setTimeout(function () { t.className = 'toast'; }, 2600);
+  }
+
+  function find(list, key) { return S.cat[list].filter(function (x) { return x.key === key; })[0]; }
+  function inFiltro(sec, it) { return sec === 'formatos' || it.none || S.filtro[sec].indexOf(it.key) >= 0; }
+
+  function isSel(sec, it) {
+    if (sec === 'styles') return S.sel.mode === 'preset' && S.sel.style === it.key;
+    if (sec === 'formatos') return S.formato === it.key;
+    if (sec === 'captions') return S.sel.captionStyle === it.key;
+    return S.sel.effects.indexOf(it.key) >= 0;
+  }
+
+  function card(sec, it) {
+    var shown = inFiltro(sec, it), sel = (!S.edit || sec === 'formatos') && isSel(sec, it);
+    var media = it.preview
+      ? '<video muted loop playsinline preload="none" src="' + esc(it.preview) + '"' + (it.poster ? ' poster="' + esc(it.poster) + '"' : '') + '></video>'
+      : (it.poster ? '<img src="' + esc(it.poster) + '" alt="">' : '<div class="plain">' + esc(it.none ? 'Sin subtítulos' : 'Sin vista previa') + '</div>');
+    var chip = '';
+    if (S.edit && !it.none && sec !== 'formatos') chip = shown ? '<span class="chip yes">✓ En mi estudio</span>' : '<span class="chip">+ Añadir</span>';
+    if (!S.edit && sec === 'styles' && !it.ready) chip = '<span class="chip soon">Próximamente</span>';
+    if (sec === 'formatos') chip = '<span class="chip st-' + esc(it.estado) + '">' + (ESTADOS[it.estado] || esc(it.estado)) + '</span>';
+    if (sel) chip += '<span class="chip sel">Elegido</span>';
+    var extra = '';
+    if (sec === 'styles') {
+      var c = it.captionStyle && find('captions', it.captionStyle);
+      var capName = it.mine && (it.captionStyle === 'none' || !c) ? (it.capLabel || 'Estilo guardado') : (c ? c.name : '');
+      extra = '<div class="lab">' + esc(capName) + (it.effects.length ? ' · ' + it.effects.length + ' efectos' : '') + '</div>';
+    } else if (it.label) {
+      extra = '<div class="lab">' + esc(it.label) + '</div>';
+    }
+    return '<div class="card' + (sel ? ' sel' : '') + (S.edit && !shown ? ' out' : '') + '" data-sec="' + sec + '" data-key="' + esc(it.key) + '">' +
+      chip + '<div class="media">' + media + '</div>' +
+      '<div class="info"><div class="name">' + esc(it.name) + '</div><div class="line">' + esc(it.line) + '</div>' + extra + '</div></div>';
+  }
+
+  function names() {
+    var n = {};
+    S.cat.effects.forEach(function (e) { n[e.key] = e.name; });
+    return n;
+  }
+
+  function renderTimeline() {
+    $('grid').hidden = true; $('note').innerHTML = ''; $('tl').hidden = false;
+    $('editBtn').hidden = true;
+    $('modeSub').textContent = 'Proyecto ' + S.project.name + ': ajusta cortes, capas y audio, y pulsa Procesar vídeo';
+    if (!S.tlMounted) { Timeline.onChange = summary; Timeline.mount($('tl'), S.project, S.sel.effects, names(), S.edicion); S.tlMounted = true; }
+    else { Timeline.setEffects(S.sel.effects); Timeline.redraw(); }
+    summary();
+  }
+
+  function render() {
+    var sec = S.tab;
+    var total = function (s) { return S.cat[s].filter(function (it) { return !it.none && S.filtro[s].indexOf(it.key) >= 0; }).length; };
+    $('tabs').innerHTML = (S.project ? PTABS : S.prep ? PREPTABS : TABS).map(function (t) {
+      var count = t[0] === 'timeline' ? '' : '<b>' + (t[0] === 'formatos' ? S.cat.formatos.length : S.edit ? S.cat[t[0]].filter(function (x) { return !x.none; }).length : total(t[0])) + '</b>';
+      return '<button class="tab' + (t[0] === sec ? ' act' : '') + '" data-tab="' + t[0] + '">' + t[1] + count + '</button>';
+    }).join('');
+    if (sec === 'timeline') return renderTimeline();
+    if (window.Timeline) Timeline.stop();
+    $('grid').hidden = false; $('tl').hidden = true; $('editBtn').hidden = sec === 'formatos'; $('fdetail').innerHTML = '';
+    var all = S.cat[sec];
+    var items = S.edit ? all : all.filter(function (it) { return inFiltro(sec, it); });
+    $('editBtn').textContent = S.edit ? 'Listo' : 'Editar mi estudio';
+    $('editBtn').className = S.edit ? 'on' : '';
+    $('modeSub').textContent = S.edit ? 'Modo edición: toca un elemento para añadirlo o quitarlo de tu estudio'
+                                      : 'Elige un estilo, o tus subtítulos y efectos, y pulsa Guardar';
+    $('note').innerHTML = S.edit ? '<div class="note">Estás viendo todo el catálogo de video-studio. Lo que marques con ✓ es lo único que aparecerá en tu estudio.</div>' : '';
+
+    var real = items.filter(function (it) { return !it.none; });
+    if (sec === 'formatos') {
+      $('note').innerHTML = '';
+      $('modeSub').textContent = 'Elige el formato del vídeo (visual + estructura), o ninguno';
+      $('grid').innerHTML = real.length ? items.map(function (it) { return card(sec, it); }).join('')
+        : '<div class="empty" style="grid-column:1/-1">Aún no tienes formatos.<br><br>Pásale a Claude enlaces de reels y dile "guarda el formato X".</div>';
+      var f = S.formato && find('formatos', S.formato);
+      if (f) $('fdetail').innerHTML = '<div class="fdet"><h3>' + esc(f.name) + ' <span class="fst">· ' + (ESTADOS[f.estado] || '') + '</span></h3><div class="cols"><div><h4>Visual</h4><ul>' +
+        f.visual.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div><div><h4>Estructura</h4><ol>' +
+        f.estructura.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol></div></div></div>';
+    } else if (!S.edit && !real.length && sec !== 'captions') {
+      $('grid').innerHTML = '<div class="empty" style="grid-column:1/-1">Aún no tienes ' + (sec === 'styles' ? 'estilos' : 'efectos') +
+        ' en tu estudio.<br><br><button data-act="edit">Añadir desde el catálogo</button></div>';
+    } else {
+      $('grid').innerHTML = items.map(function (it) { return card(sec, it); }).join('');
+    }
+    summary();
+  }
+
+  function summary() {
+    var st = S.sel.mode === 'preset' && find('styles', S.sel.style);
+    var cap = S.sel.captionStyle && find('captions', S.sel.captionStyle);
+    var fx = S.sel.effects.map(function (k) { var e = find('effects', k); return e ? e.name : k; });
+    var fm = S.formato && find('formatos', S.formato);
+    $('sum').innerHTML = (fm ? 'Formato: <b>' + esc(fm.name) + '</b> · ' : '') + (st ? 'Estilo: <b>' + esc(st.name) + '</b> · ' : '') +
+      'Subtítulos: <b>' + esc(st && st.mine && S.sel.captionStyle === 'none' ? 'los del estilo' : cap ? cap.name : 'sin elegir') + '</b> · ' +
+      'Efectos: <b>' + esc(fx.length ? fx.join(', ') : 'ninguno') + '</b>' +
+      (S.tab === 'timeline' && S.tlMounted ? ' · Duración: <b>' + Timeline.data().total.toFixed(1) + ' s</b>' +
+        (Timeline.dirty().length ? ' · Cambiado: <b>' + Timeline.dirty().join(', ') + '</b>' : '') : '');
+    $('saveBtn').disabled = S.project ? (S.tab === 'timeline' && !cap) : (!cap || S.edit);
+    if (S.project) $('saveBtn').textContent = S.tab === 'timeline' ? 'Procesar vídeo' : 'Siguiente →';
+    if (S.prep) { $('saveBtn').disabled = S.edit; $('saveBtn').textContent = S.tab === 'effects' ? 'Empezar a editar' : 'Siguiente →'; }
+    if (S.prep && !S.edit) $('modeSub').textContent = 'Antes de cortar: elige formato, subtítulos y efectos, y pulsa Empezar a editar';
+  }
+
+  function processVideo() {
+    var d = Timeline.data();
+    var body = { edl: d.edl, effects: d.effects, elementos: d.elementos, formato: S.formato, edicion: d.edicion,
+                 picks: { mode: S.sel.mode, style: S.sel.style, captionStyle: S.sel.captionStyle, effects: S.sel.effects, effectSections: null } };
+    $('saveBtn').disabled = true;
+    api('/api/timeline', body).then(function () {
+      Timeline.stop();
+      toast('Enviado. Claude está procesando el vídeo; ya puedes cerrar esta pestaña.');
+      $('saveBtn').textContent = 'Enviado ✓';
+    }).catch(function (e) { toast('No se pudo enviar: ' + e.message, true); $('saveBtn').disabled = false; });
+  }
+
+  function toggleFiltro(sec, key) {
+    var list = S.filtro[sec], i = list.indexOf(key);
+    if (i >= 0) list.splice(i, 1); else list.push(key);
+    render();
+    api('/api/filtro', S.filtro).catch(function (e) { toast('No se pudo guardar tu estudio: ' + e.message, true); });
+  }
+
+  function pick(sec, key) {
+    var it = find(sec, key);
+    if (sec === 'styles') {
+      if (!it.ready) return toast('Este estilo aún no está disponible');
+      if (isSel(sec, it)) S.sel = { mode: 'custom', style: null, captionStyle: S.sel.captionStyle, effects: S.sel.effects };
+      else S.sel = { mode: 'preset', style: key, captionStyle: it.captionStyle, effects: it.effects.slice() };
+    } else if (sec === 'formatos') {
+      S.formato = S.formato === key ? null : key;
+    } else if (sec === 'captions') {
+      S.sel.captionStyle = key;
+    } else {
+      var i = S.sel.effects.indexOf(key);
+      if (i >= 0) S.sel.effects.splice(i, 1); else S.sel.effects.push(key);
+    }
+    render();
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-tab],[data-act],.card');
+    if (!t) return;
+    if (t.dataset.tab) { S.tab = t.dataset.tab; render(); return; }
+    if (t.dataset.act === 'edit') { S.edit = true; render(); return; }
+    var sec = t.dataset.sec, key = t.dataset.key, it = find(sec, key);
+    if (S.edit && sec !== 'formatos') { if (!it.none) toggleFiltro(sec, key); } else pick(sec, key);
+  });
+  document.addEventListener('mouseover', function (e) {
+    var c = e.target.closest('.card'), v = c && c.querySelector('video');
+    if (v && v.paused) v.play().catch(noop);
+  });
+  document.addEventListener('mouseout', function (e) {
+    var c = e.target.closest('.card');
+    if (c && !c.contains(e.relatedTarget)) { var v = c.querySelector('video'); if (v) v.pause(); }
+  });
+  $('editBtn').onclick = function () { S.edit = !S.edit; render(); };
+  function startEditing() {
+    var body = { formato: S.formato, picks: S.sel.captionStyle
+      ? { mode: S.sel.mode, style: S.sel.style, captionStyle: S.sel.captionStyle, effects: S.sel.effects, effectSections: null } : null };
+    $('saveBtn').disabled = true;
+    api('/api/preparar', body).then(function () {
+      toast('Listo. Claude empieza a cortar; ya puedes cerrar esta pestaña.');
+      $('saveBtn').textContent = 'Enviado ✓';
+    }).catch(function (e) { toast('No se pudo enviar: ' + e.message, true); $('saveBtn').disabled = false; });
+  }
+
+  $('saveBtn').onclick = function () {
+    if (S.prep) {
+      if (S.tab === 'effects') return startEditing();
+      S.tab = PREPORDER[PREPORDER.indexOf(S.tab) + 1] || 'effects'; S.edit = false; render(); window.scrollTo(0, 0);
+      return;
+    }
+    if (S.project) {
+      if (S.tab === 'timeline') return processVideo();
+      var order = ['formatos', 'captions', 'effects', 'timeline'];
+      S.tab = S.tab === 'styles' ? 'captions' : order[order.indexOf(S.tab) + 1]; S.edit = false; render(); window.scrollTo(0, 0);
+      return;
+    }
+    var body = { mode: S.sel.mode, style: S.sel.style, captionStyle: S.sel.captionStyle, effects: S.sel.effects, effectSections: null };
+    $('saveBtn').disabled = true;
+    api('/api/formato', { formato: S.formato }).then(function () { return api('/api/save', body); })
+      .then(function () { toast('Guardado. Ya puedes volver a Claude.'); })
+      .catch(function (e) { toast('No se pudo guardar: ' + e.message, true); })
+      .then(summary);
+  };
+
+  var me = Math.random().toString(36).slice(2, 12);
+  var ping = function () { fetch('/api/ping?p=' + me, { cache: 'no-store' }).catch(noop); };
+  ping(); setInterval(ping, 10000);
+  window.addEventListener('pageshow', function (e) { if (e.persisted) ping(); });
+  window.addEventListener('pagehide', function () {
+    try { fetch('/api/bye', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ p: me }) }).catch(noop); } catch (e) {}
+  });
+
+  Promise.all([api('/api/catalog'), api('/api/picks'), api('/api/filtro'), api('/api/mode'), api('/api/formatos'), api('/api/formato')]).then(function (r) {
+    S.cat = r[0]; S.filtro = r[2]; S.cat.formatos = r[4]; S.formato = r[5].formato;
+    var p = r[1];
+    S.sel = { mode: p.mode, style: p.style, captionStyle: p.captionStyle, effects: (p.effects || []).slice() };
+    var empty = !S.filtro.styles.length && !S.filtro.captions.length && !S.filtro.effects.length;
+    if (empty) { S.edit = true; S.tab = 'captions'; }
+    else if (!S.filtro.styles.length) S.tab = S.filtro.captions.length ? 'captions' : 'effects';
+    if (!empty && S.cat.formatos.length) S.tab = 'formatos';
+    if (r[3].preparar) { S.prep = true; S.edit = false; S.tab = 'formatos'; }
+    if (!r[3].project) return render();
+    S.tab = S.sel.captionStyle ? 'timeline' : 'formatos';
+    return Promise.all([api('/api/project'), api('/api/edicion')]).then(function (r) { S.project = r[0]; S.edicion = r[1]; render(); });
+  }).catch(function (e) { toast('No se pudo cargar el catálogo: ' + e.message, true); });
+})();
+</script>
+</body>
+</html>

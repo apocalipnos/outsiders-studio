@@ -1,0 +1,30 @@
+{
+  "key": "ranking",
+  "name": "Ranking",
+  "line": "Ordenas varias cosas del 1 al 10 dando el puesto de cada una; el número 1 se revela al final.",
+  "estado": "receta",
+  "visual": [
+    "Columna de posiciones numeradas (1 arriba) en el lateral izquierdo, vacía desde el primer fotograma",
+    "Persona en el centro-derecha, sin tapar la columna",
+    "Título fijo arriba con el tema del ranking",
+    "Al decir el puesto, la imagen del elemento aparece en su hueco junto al número",
+    "Imágenes: logos o fotos reales si son marcas/productos; iconos blancos si son conceptos",
+    "Subtítulos cortos en el centro, nunca encima de la columna"
+  ],
+  "estructura": [
+    "Hook: \"Ranking de X\" / \"Top 10 X\" / \"Mejores y peores X del 1 al 10\", con la columna vacía a la vista",
+    "Por cada elemento: nombre → puesto (\"número 8\") → justificación de 1-2 frases",
+    "Desordenado: se van rellenando huecos salteados",
+    "El número 1 siempre al final, como clímax",
+    "Cierre tras el número 1: CTA o giro (\"¿y X? ni siquiera entra en la lista\")"
+  ],
+  "refs": [
+    "https://www.instagram.com/reel/Dd2ChjGKbIh/",
+    "https://www.instagram.com/reel/DcfOxhutYkE/",
+    "https://www.instagram.com/reel/DbqvnW5t76b/",
+    "https://www.instagram.com/reel/Dcmfn5xEdHq/"
+  ],
+  "preview": "preview.mp4",
+  "poster": "poster.jpg",
+  "created": "2026-10-24"
+}

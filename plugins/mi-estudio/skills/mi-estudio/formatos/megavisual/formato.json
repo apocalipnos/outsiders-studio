@@ -1,0 +1,27 @@
+{
+  "key": "megavisual",
+  "name": "Megavisual",
+  "line": "Pantalla partida: arriba una imagen por cada cosa que nombras, abajo tú; lista rápida de ~1 s por elemento.",
+  "estado": "validado",
+  "visual": [
+    "Pantalla partida: imagen a todo el ancho arriba (0-900 px), tú en el panel de abajo",
+    "La imagen cambia con corte seco justo cuando empiezas cada elemento",
+    "Texto en la franja: el elemento en grande (blanco, Montserrat 800, mayúsculas, sombra) y un dato pequeño debajo",
+    "Degradado oscuro suave bajo el texto para que se lea sobre cualquier imagen",
+    "Cierre: collage de todas las imágenes arriba, entrando una tras otra, con el CTA en la franja",
+    "Clic suave en cada cambio de imagen y whoosh al entrar el collage; sin música"
+  ],
+  "estructura": [
+    "Hook: el primer elemento directamente, sin título (como las referencias)",
+    "Lista: dices cada elemento (una palabra o dos) y salta a la siguiente imagen, ~1 s por elemento",
+    "Sin justificaciones: el ritmo rápido y las imágenes son el contenido",
+    "Cierre: CTA de una frase con el collage arriba"
+  ],
+  "refs": [
+    "https://www.instagram.com/reels/DepDrVBtFmv/",
+    "https://www.instagram.com/reels/DRckhI3k_NR/"
+  ],
+  "preview": "preview.mp4",
+  "poster": "poster.jpg",
+  "created": "2026-10-25"
+}

@@ -1,0 +1,29 @@
+{
+  "key": "tierlist",
+  "name": "Tierlist",
+  "line": "Clasificas varias cosas en niveles S, A, B, C, D, justificando cada veredicto.",
+  "estado": "receta",
+  "visual": [
+    "Tabla de niveles S-A-B-C-D en la mitad inferior, visible y vacía desde el primer fotograma",
+    "Etiqueta de cada nivel en su color (rojo, naranja, amarillo, verde, azul) y filas negras",
+    "Persona hablando a cámara en la mitad superior",
+    "Título fijo arriba con el tema del ranking",
+    "Al nombrar un elemento, su foto aparece grande a un lado de la tabla",
+    "Al dar el veredicto, la foto vuela a su fila y se queda ahí",
+    "Subtítulos cortos justo encima de la tabla"
+  ],
+  "estructura": [
+    "Hook: \"Ranking de X\" o directamente el primer elemento, con la tabla vacía a la vista",
+    "Por cada elemento: nombre → justificación de 1 a 3 frases → veredicto (\"tier S\")",
+    "Entre 8 y 16 elementos, sin ordenar por nivel; un veredicto polémico entre los 3 primeros",
+    "Cierre: tabla completa y CTA (comentar, seguir, \"¿me dejé tu favorito?\")"
+  ],
+  "refs": [
+    "https://www.instagram.com/reel/DWkeD3Nh9KM/",
+    "https://www.instagram.com/reel/DVea0aEiCHT/",
+    "https://www.instagram.com/reel/DdSu9gsgEfQ/"
+  ],
+  "preview": "preview.mp4",
+  "poster": "poster.jpg",
+  "created": "2026-10-23"
+}

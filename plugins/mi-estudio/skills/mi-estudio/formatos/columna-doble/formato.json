@@ -1,0 +1,30 @@
+{
+  "key": "columna-doble",
+  "name": "Columna Doble",
+  "line": "Clasificas cosas en dos categorías opuestas (mito/realidad, sí/no, dispara/no dispara) con un veredicto rápido.",
+  "estado": "receta",
+  "visual": [
+    "Dos cabeceras de color arriba, a izquierda y derecha, con las categorías opuestas (verde / rojo)",
+    "Columnas vacías desde el primer fotograma; 3 columnas solo si el vídeo lo pide",
+    "Título fijo arriba con la pregunta del vídeo",
+    "Al nombrar un elemento, su imagen aparece grande abajo en el centro",
+    "Al dar el veredicto, vuela a su columna, se apila bajo su cabecera y la cabecera se ilumina",
+    "Persona en el centro, flanqueada por las columnas; subtítulos cortos entre ellas"
+  ],
+  "estructura": [
+    "Hook: la pregunta (\"¿Hype o merece la pena?\", \"¿Dispara o no dispara tu factura?\") con las columnas vacías",
+    "Por cada elemento: nombre o afirmación → veredicto de una palabra (la categoría) → justificación opcional de 1 frase",
+    "Ritmo rápido: 2-6 s por elemento, entre 6 y 15 elementos",
+    "Cierre: columnas llenas y CTA"
+  ],
+  "refs": [
+    "https://www.instagram.com/reels/DYPbE6XxBhl/",
+    "https://www.instagram.com/reels/DepU5UMIm8G/",
+    "https://www.instagram.com/reels/DY6_6eRksMq/",
+    "https://www.instagram.com/reels/DbtX3_YAEIF/",
+    "https://www.instagram.com/reels/Db6OPRvsX9W/"
+  ],
+  "preview": "preview.mp4",
+  "poster": "poster.jpg",
+  "created": "2026-10-24"
+}

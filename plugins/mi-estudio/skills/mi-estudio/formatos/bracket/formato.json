@@ -1,0 +1,28 @@
+{
+  "key": "bracket",
+  "name": "Bracket",
+  "line": "Eliminatoria de 16: te preguntan \"¿A o B?\", eliges y el ganador sube de ronda hasta que queda un campeón.",
+  "estado": "validado",
+  "visual": [
+    "Bracket de 16 caras recortadas tipo pegatina (borde blanco), 8 por lado, visible desde el primer fotograma",
+    "Caras grandes (~124 px): del pecho al borde inferior, como la referencia; cuartos una columna hacia dentro, semis y final en la columna interior",
+    "Líneas blancas gruesas (10 px); el camino del ganador se pone amarillo al elegir",
+    "Durante la pregunta las dos caras crecen y brillan; al elegir, el perdedor se apaga y el ganador salta a su siguiente hueco",
+    "Campeón: el finalista ganador se queda grande y brillando",
+    "Título fijo arriba con la pregunta y subtítulos de una línea bajo la barbilla (la respuesta en cursiva)",
+    "Pop suave en cada avance y golpe grave bajo en el campeón; sin música"
+  ],
+  "estructura": [
+    "Hook: la pregunta del vídeo (\"¿Quién es el mejor X?\") con el bracket lleno a la vista",
+    "Primera ronda: 8 duelos \"¿A o B?\" + respuesta, de arriba abajo, primero el lado izquierdo",
+    "Cuartos, semis y final con el mismo ritmo; alguna reacción corta con gracia entre duelos",
+    "Cierre: la respuesta de la final, el campeón se ilumina"
+  ],
+  "refs": [
+    "https://www.instagram.com/reels/DdHmmcHBxy7/",
+    "https://www.instagram.com/reels/DccBBkqNE8O/"
+  ],
+  "preview": "preview.mp4",
+  "poster": "poster.jpg",
+  "created": "2026-10-25"
+}

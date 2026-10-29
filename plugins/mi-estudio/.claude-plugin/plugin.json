@@ -1,0 +1,10 @@
+{
+  "name": "mi-estudio",
+  "version": "1.0.0",
+  "description": "Mi Estudio: formatos de vídeo, estilos filtrados y línea de tiempo tipo CapCut encima de video-studio (Creator Studio).",
+  "author": {
+    "name": "Outsiders",
+    "email": "work@losoutsiders.com"
+  },
+  "keywords": ["video", "reels", "edicion", "video-studio"]
+}
