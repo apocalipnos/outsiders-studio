@@ -16,7 +16,7 @@ Marketplace de plugins de Claude Code de Outsiders. De momento trae uno: **Mi Es
 En Claude Code:
 
 ```
-/plugin marketplace add <usuario-o-org>/outsiders-studio
+/plugin marketplace add apocalipnos/outsiders-studio
 /plugin install mi-estudio@outsiders-studio
 ```
 
