@@ -30,6 +30,26 @@ def editado(proj, tool, defaults):
             out[k].update(v)
         else:
             out[k] = v
+    if tool == 'capas' and defaults:            # con esto se monta el vídeo: aplicar.py cuenta lo que cambie después desde aquí
+        p = _montado_path(proj)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False)
+    return out
+
+
+def _montado_path(proj):
+    return os.path.join(proj, 'work', 'mi-estudio', 'capas_montadas.json')
+
+
+def montado(proj):
+    """Los valores de Capas con los que está montado el index.html base. En un proyecto de antes de guardarlos: lo último guardado, que
+    siempre se montaba al procesar. Se apunta para que no cambie al guardar lo siguiente: Mi Estudio lo llama al abrir."""
+    p, e = _montado_path(proj), _path(proj, 'capas_edit')
+    if os.path.isfile(p):
+        return json.load(open(p, encoding='utf-8'))
+    out = json.load(open(e, encoding='utf-8')) if os.path.isfile(e) else {}
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False)
     return out
 
 
@@ -120,6 +140,63 @@ def aplicar_subtitulos(proj, edits):
         json.dump(C, open(capas_p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         json.dump(log, open(log_p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return n
+
+
+def aplicar_palabras(proj, edit):
+    """Procesar vídeo (lo llama Mi Estudio): las palabras que el usuario dejó en el panel Subtítulos, {"words": [{text, start, end}]},
+    van a words.json. Las cambiadas se apuntan en edicion/subtitulos.json para reaplicar_subtitulos. Devuelve cuántas cambiaron."""
+    new, words_p, log_p = edit.pop('words', None), os.path.join(proj, 'words.json'), _path(proj, 'subtitulos')
+    if not isinstance(new, list) or not os.path.isfile(words_p):
+        return 0
+    old = json.load(open(words_p, encoding='utf-8'))
+    log = json.load(open(log_p, encoding='utf-8')) if os.path.isfile(log_p) else []
+    out, n = [], 0
+    for i, w in enumerate(new):
+        base = dict(old[i]) if len(new) == len(old) else {}
+        base.update(text=str(w['text']), start=round(float(w['start']), 3), end=round(float(w['end']), 3))
+        out.append(base)
+        if len(new) == len(old) and old[i]['text'] != base['text']:
+            log.append({'old': old[i]['text'], 'new': base['text'], 'at': base['start']})
+            n += 1
+    if out != old:
+        n = n or 1
+        json.dump(out, open(words_p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        json.dump(log, open(log_p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return n
+
+
+def variable(proj, nombre, por_defecto=None):
+    """El valor de una variable del panel Variables (edicion/variables_edit.json), o el valor por defecto."""
+    v = editado(proj, 'variables', {}).get('vars', {}).get(nombre)
+    return v.get('value', por_defecto) if isinstance(v, dict) else por_defecto
+
+
+_FX_FFMPEG = {
+    'gain': lambda p: 'volume=%sdB' % p.get('gain', 0),
+    'peaking': lambda p: 'equalizer=f=%s:t=q:w=%s:g=%s' % (p.get('frequency', 1000), p.get('q', 1), p.get('gain', 0)),
+    'lowshelf': lambda p: 'bass=f=%s:g=%s' % (p.get('frequency', 200), p.get('gain', 0)),
+    'highshelf': lambda p: 'treble=f=%s:g=%s' % (p.get('frequency', 4000), p.get('gain', 0)),
+    'highpass': lambda p: 'highpass=f=%s:p=%s' % (p.get('frequency', 300), p.get('poles', '2')),
+    'lowpass': lambda p: 'lowpass=f=%s:p=%s' % (p.get('frequency', 8000), p.get('poles', '2')),
+    'compressor': lambda p: 'acompressor=threshold=%sdB:ratio=%s:attack=%s:release=%s:makeup=%sdB:mix=%s' % (
+        p.get('threshold', -24), p.get('ratio', 4), p.get('attack', 20), p.get('release', 250), p.get('makeup', 0), p.get('mix', 1)),
+    'limiter': lambda p: 'alimiter=limit=%s:attack=%s:release=%s' % (round(10 ** (p.get('limit', -1) / 20), 4), p.get('attack', 5), p.get('release', 50)),
+    'gate': lambda p: 'agate=threshold=%s:ratio=%s:attack=%s:release=%s' % (round(10 ** (p.get('threshold', -35) / 20), 5), p.get('ratio', 10), p.get('attack', 1), p.get('release', 100)),
+    'delay': lambda p: 'aecho=1:%s:%s:%s' % (p.get('mix', .4) if p.get('mix', .4) > 0 else .01, p.get('time', 250), p.get('feedback', .35)),
+    'chorus': lambda p: 'chorus=0.7:0.9:%s:0.4:%s:2' % (p.get('delay', 25), p.get('rate', p.get('speed', .5))),
+    'phaser': lambda p: 'aphaser=speed=%s' % p.get('speed', p.get('rate', .5)),
+    'pitchshift': lambda p: 'rubberband=pitch=%s' % round(2 ** (p.get('semitones', 0) / 12), 5),
+    'bitcrush': lambda p: 'acrusher=bits=%s:samples=%s:mix=%s' % (p.get('bits', 8), p.get('samples', 1), p.get('mix', 1)),
+    'saturate': lambda p: 'asoftclip=type=%s' % {'tanh': 'tanh', 'atan': 'atan', 'cubic': 'cubic', 'exp': 'exp', 'alg': 'alg', 'quintic': 'quintic', 'sin': 'sin', 'erf': 'erf', 'hard': 'hard'}.get(p.get('type', 'tanh'), 'tanh'),
+}
+
+
+def filtro_audio(proj, pista):
+    """La cadena de Audio FX de una pista como filtro de ffmpeg ("-af"), para los vídeos cuya mezcla final se hace con
+    ffmpeg (mixdown de pistas). Devuelve '' si no tiene. La reverb no tiene equivalente directo y se salta."""
+    cad = editado(proj, 'audiofx', {}).get('chains', {}).get(pista) or {}
+    parts = [_FX_FFMPEG[n['type']](n.get('params') or {}) for n in cad.get('nodes', []) if n.get('enabled', True) and n.get('type') in _FX_FFMPEG]
+    return ','.join(parts)
 
 
 def reaplicar_subtitulos(proj):

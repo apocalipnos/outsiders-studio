@@ -64,7 +64,7 @@
   function parts(g, it) {                    // [{k, t0}]: las partes de texto del item con su texto propuesto
     if (!it._parts) {
       var d = document.createElement('div');
-      d.innerHTML = it.html || '';
+      d.innerHTML = A.html(it.html || '');     // sus rutas son del proyecto: sin esto el navegador las pide mal
       var ns = nodes(d);
       it._parts = ns.map(function (n) {
         var k = nkey(g, it, n);
@@ -98,6 +98,8 @@
   function edit(gid, e) {                    // doble clic: escribir el texto en la misma vista previa
     var g = group(gid), it = C.shown[gid], el = C.els[gid];
     if (!it || C.ed) return;
+    if (el.classList.contains('real')) el.style.cssText = natural(g, C.val[gid]);   // sobre el resultado: se escribe en su sitio de la edición
+    el.classList.add('ed');
     var ns = nodes(el.querySelector('.cp-in')), n = ns[0];
     ns.forEach(function (x) {                // la parte en la que se hizo doble clic
       var r = document.createRange(); r.selectNodeContents(x);
@@ -127,7 +129,8 @@
     var done = function (cancel) {
       if (C.ed !== gid) return;
       C.ed = null;
-      setText(gid, it, k, cancel ? t0 : sp.innerText);
+      setText(gid, it, k, cancel ? t0 : sp.innerText);   // antes de ocultarla otra vez: innerText de algo oculto está vacío
+      el.classList.remove('ed');
       if (text(gid, p) === t0) A.state().hist.pop();
       el.dataset.html = '';
       A.refresh();
@@ -140,8 +143,14 @@
     sp.addEventListener('blur', function () { done(); });
   }
 
+  function natural(g, o) {
+    return g.kind === 'box'
+      ? 'left:' + o.left + 'px;top:' + o.top + 'px;width:' + o.width + 'px;height:' + Math.round(o.width / (g.aspect || 1)) + 'px'
+      : 'left:' + o.cx + 'px;top:' + o.top + 'px;transform:translateX(-50%) scale(' + o.scale + ')';
+  }
   function paint(t) {
-    var T = A.state(), fg = focus();
+    var T = A.state(), fg = focus(), rs = window.MiResultado && MiResultado.on();
+    if (rs && T.playing) return;              // reproduciendo el resultado las capas no se tocan: no hay que medirlas
     if (C.rz) {
       T.el.rf.style.transformOrigin = C.rz.origin[0] + 'px ' + C.rz.origin[1] + 'px';
       T.el.rf.style.transform = 'scale(' + C.val.reframe.zoom + ')';
@@ -153,6 +162,7 @@
     C.groups.forEach(function (g) {
       var el = C.els[g.id], o = C.val[g.id], hit = itemAt(g, t, g.id === fg);
       if (C.ed === g.id) return;              // se está escribiendo en ella
+      if (A.isHidden('el:' + g.id)) hit = null;   // su pista está oculta en la línea de tiempo
       el.hidden = !hit;
       C.shown[g.id] = hit && hit.it;
       if (!hit) return;
@@ -167,9 +177,9 @@
         var box = T.el.insp.querySelector('.cp-texts[data-g="' + g.id + '"]');
         if (box && !box.contains(document.activeElement) && C.rowSig[g.id] !== sig(g.id, hit.it)) box.outerHTML = textRow(g.id, hit.it);
       }
-      el.style.cssText = g.kind === 'box'
-        ? 'left:' + o.left + 'px;top:' + o.top + 'px;width:' + o.width + 'px;height:' + Math.round(o.width / (g.aspect || 1)) + 'px'
-        : 'left:' + o.cx + 'px;top:' + o.top + 'px;transform:translateX(-50%) scale(' + o.scale + ')';
+      var rc = rs && hit.it.el && MiResultado.rect(hit.it.el);   // sobre el resultado, justo encima de lo que se ve (cada item puede ir en su sitio)
+      el.style.cssText = rc ? 'left:' + rc.left + 'px;top:' + rc.top + 'px;width:' + rc.width + 'px;height:' + rc.height + 'px' : natural(g, o);
+      el.classList.toggle('real', !!rc);
       el.classList.toggle('sel', g.id === fg);
       el.classList.toggle('ghost', hit.ghost);
     });
@@ -188,7 +198,7 @@
       (g.lockX ? '' : b('data-mv="1,0"', '→', 'Mayús: 10 px')) + '</div>' +
       '<div class="tl-row"><label>Tamaño</label>' + b('data-sz="-1"', '−') + '<span class="v wide">' + v[1] + '</span>' + b('data-sz="1"', '+') + '</div>' +
       '<div class="tl-acts">' + b('data-a="reset"', 'Restablecer posición y tamaño') + '</div>' +
-      '<div class="help">Arrástrala en la vista previa; el círculo azul de su esquina cambia el tamaño. Vale para ' +
+      '<div class="help">Arrástrala en la vista previa; los círculos de sus esquinas cambian el tamaño. Vale para ' +
       (g.items.length > 1 ? 'las ' + g.items.length + ' capas de este grupo' : 'esta capa') + '. Flechas del teclado: 1 px (Mayús: 10 px).</div>';
   }
 
@@ -211,22 +221,28 @@
     var T = A.state();
     if (!(T.sel && T.sel.type === 'grp' && T.sel.id === gid)) A.select({ type: 'grp', id: gid });
     A.remember();
-    var g = group(gid), sx = e.clientX, sy = e.clientY, start = copy(C.val[gid]), S = T.S;
-    var startW = C.els[gid].getBoundingClientRect().width / S, moved = false;
+    var g = group(gid), sx = e.clientX, sy = e.clientY, start = copy(C.val[gid]), S = T.S, moved = false;
+    var r0 = C.els[gid].getBoundingClientRect(), startW = r0.width / S, startH = r0.height / S;
+    var ofs = (r0.left + r0.width / 2 - T.el.stage.getBoundingClientRect().left) / S - (g.kind === 'box' ? start.left + start.width / 2 : start.cx);   // lo que se ve puede ir desplazado de su grupo
+    var gx = /e$/.test(mode) ? 1 : -1, gy = /^s/.test(mode) ? 1 : -1;    // la esquina que se arrastra: la contraria se queda quieta
     function mv(ev) {
       var dx = (ev.clientX - sx) / S, dy = (ev.clientY - sy) / S, o = C.val[gid], c;
       if (!moved && Math.abs(dx) + Math.abs(dy) < 2) return;
       moved = true;
       if (mode === 'move') {
-        if (g.kind === 'box') { o.left = start.left + dx; o.top = start.top + dy; c = o.left + o.width / 2; }
-        else { if (!g.lockX) o.cx = start.cx + dx; o.top = start.top + dy; c = o.cx; }
+        if (g.kind === 'box') { o.left = A.gridSnap(start.left + dx); o.top = A.gridSnap(start.top + dy); c = o.left + o.width / 2 + ofs; }
+        else { if (!g.lockX) o.cx = A.gridSnap(start.cx + dx); o.top = A.gridSnap(start.top + dy); c = o.cx + ofs; }
         var near = Math.abs(c - A.W / 2) < SNAP;
         C.guide.style.display = near ? 'block' : 'none';
-        if (near) { if (g.kind === 'box') o.left = A.W / 2 - o.width / 2; else if (!g.lockX) o.cx = A.W / 2; }
+        if (near) { if (g.kind === 'box') o.left = A.W / 2 - o.width / 2 - ofs; else if (!g.lockX) o.cx = A.W / 2 - ofs; }
       } else if (g.kind === 'box') {
-        o.width = Math.max(120, start.width + Math.max(dx, dy * (g.aspect || 1)));
+        var asp = g.aspect || 1, w = Math.max(120, start.width + Math.max(gx * dx, gy * dy * asp));
+        o.width = w;
+        if (gx < 0) o.left = start.left + start.width - w;
+        if (gy < 0) o.top = start.top + (start.width - w) / asp;
       } else {            // centrada: crece por los dos lados, así que el asa se mueve la mitad de lo que crece
-        o.scale = Math.round(A.clamp(start.scale * Math.max(60, startW + 2 * dx) / startW, 0.3, 3) * 1000) / 1000;
+        o.scale = Math.round(A.clamp(start.scale * (1 + Math.max(2 * gx * dx / startW, gy * dy / startH)), 0.3, 3) * 1000) / 1000;
+        if (gy < 0) o.top = start.top + startH * (1 - o.scale / start.scale);
       }
       touch();
     }
@@ -245,6 +261,7 @@
       A = api;
       var T = A.state();
       C = { groups: input.groups, rz: input.reframe || null, els: {}, byEl: {}, val: {}, txt: {}, shown: {}, rowSig: {}, ed: null, lastMem: 0 };
+      var HANDLES = ['nw', 'ne', 'sw', 'se'].map(function (c) { return '<div class="cp-h ' + c + '" data-c="' + c + '"></div>'; }).join('');
       C.groups.forEach(function (g) {
         var sv = Object.assign({}, (saved || {})[g.id] || {});
         C.txt[g.id] = sv.texts || {};
@@ -253,6 +270,7 @@
         g.items.forEach(function (it) { if (it.el) C.byEl[it.el] = g.id; });
       });
       if (C.rz) C.val.reframe = { zoom: ((saved || {}).reframe || {}).zoom || C.rz.default || 1 };
+      C.val0 = JSON.stringify(C.val);
       (input.fonts || []).forEach(function (f) {
         if (document.querySelector('link[data-cp="' + f + '"]')) return;
         var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = A.url(f); l.dataset.cp = f; document.head.appendChild(l);
@@ -263,13 +281,13 @@
       if (input.grade) T.el.rf.style.filter = input.grade;
       T.el.ov.innerHTML = '<div class="cp-guide"></div>' + C.groups.map(function (g, i) {
         return '<div class="cp-g ' + g.kind + '" data-g="' + g.id + '" style="z-index:' + (i + 2) + '" hidden><div class="cp-in"></div>' +
-          '<div class="cp-tag">' + A.esc(g.label) + '</div><div class="cp-h"></div></div>';
+          '<div class="cp-tag">' + A.esc(g.label) + '</div>' + HANDLES + '</div>';
       }).join('');
       C.guide = T.el.ov.querySelector('.cp-guide');
       C.groups.forEach(function (g) {
         var d = C.els[g.id] = T.el.ov.querySelector('.cp-g[data-g="' + g.id + '"]');
         d.addEventListener('pointerdown', function (e) { drag(g.id, 'move', e); });
-        d.querySelector('.cp-h').addEventListener('pointerdown', function (e) { drag(g.id, 'size', e); });
+        d.querySelectorAll('.cp-h').forEach(function (h) { h.addEventListener('pointerdown', function (e) { drag(g.id, h.dataset.c, e); }); });
         d.addEventListener('dblclick', function (e) { e.preventDefault(); edit(g.id, e); });
       });
       T.el.stage.addEventListener('pointerdown', function (e) {       // tocar el vídeo fuera de las capas suelta la elegida
@@ -277,15 +295,28 @@
       });
       return true;
     },
+    laneOf: function (f) {                     // en la línea de tiempo, una pista por grupo de capas
+      var gid = C.byEl[f.id], g = gid && group(gid);
+      return g ? { id: gid, label: g.label } : null;
+    },
     toolbar: function () {
-      return C.rz ? '<label class="tl-rz">Encuadre <input type="range" data-p="capas" data-k="zoom" min="1" max="' + (C.rz.max || 1.4) +
-        '" step="0.005"><span class="tl-rzv"></span><button data-p="capas" data-a="rz" title="Volver al encuadre propuesto">↺</button></label>' : '';
+      return C.rz ? '<label class="tl-rz">Zoom general <input type="range" data-p="capas" data-k="zoom" min="1" max="' + (C.rz.max || 1.4) +
+        '" step="0.005"><span class="tl-rzv"></span><button data-p="capas" data-a="rz" title="Volver al zoom propuesto">↺</button></label>' : '';
     },
     paint: paint,
+    necesita: function () {                    // lo que aplicar.py no puede poner sin volver a montar; lo demás de Capas sale sin Claude
+      var v0 = JSON.parse(C.val0), out = '';
+      if (C.rz && v0.reframe.zoom !== C.val.reframe.zoom) out = 'zoom general';
+      C.groups.forEach(function (g) {
+        var sub = g.words || g.id === 'subs', sinEl = g.items.some(function (it) { return !it.el; });
+        if (sub ? Object.keys(C.txt[g.id]).length : sinEl && (Object.keys(C.txt[g.id]).length || JSON.stringify(v0[g.id]) !== JSON.stringify(C.val[g.id]))) out = sub ? 'textos de subtítulos' : 'capas o textos';
+      });
+      return out;
+    },
     helpExtra: function () {
-      return '<b>Capas en la vista previa:</b> toca una para elegirla, arrástrala para moverla y el círculo azul de su esquina cambia el tamaño (vale para todo su grupo). ' +
+      return '<b>Capas en la vista previa:</b> toca una para elegirla, arrástrala para moverla y los círculos de sus esquinas cambian el tamaño (vale para todo su grupo). ' +
         '<b>Textos</b> (títulos, subtítulos...): doble clic encima para escribir ahí mismo (Intro termina, Esc deshace), o en el campo Texto del panel. ' +
-        '<b>Encuadre</b> (arriba de la línea de tiempo) acerca el plano de todos los clips. <b>Zona segura</b> enseña en rojo lo que tapa Instagram.<br>';
+        '<b>Zoom general</b> (arriba de la vista previa) acerca el plano de todos los clips.<br>';
     },
     inspector: function (sel) {
       var g = group(sel.id), hit = itemAt(g, A.state().t, true);

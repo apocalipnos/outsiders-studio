@@ -31,10 +31,12 @@ import argparse
 import array
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 import webbrowser
 
@@ -51,8 +53,12 @@ SECTIONS = ('styles', 'captions', 'effects')
 with open(PLATFORM, 'r', encoding='utf-8') as f:
     PLAT = json.load(f)
 sys.path.insert(0, os.path.join(PLAT['skill_dir'], 'picker'))
+sys.path.insert(0, os.path.join(PLAT['skill_dir'], 'scripts'))
 import serve  # noqa: E402
+import skillenv  # noqa: E402
 import edicion  # noqa: E402
+import aplicar  # noqa: E402
+import ficha  # noqa: E402
 
 
 STYLES_DIR = os.path.join(os.path.dirname(PLATFORM), 'styles')   # los estilos guardados de video-studio (my_styles.py)
@@ -83,6 +89,8 @@ SOURCES = {}                     # clip id -> ruta del vídeo fuente
 PREVIEWS = {}                    # clip id -> Event que se activa cuando su copia ligera está lista (o falló)
 UNTIL_SAVED = False
 PREPARAR = False                 # --preparar: elegir formato, subtítulos y efectos antes de cortar
+FICHA, FICHA_PATH = None, None   # --ficha: lo que ficha.py sacó de la referencia, para revisarlo antes de cortar
+RESULTADO = False                # --resultado: se abre enseñando el vídeo montado (Ver resultado), para aprobarlo antes del render
 serve.TYPES.setdefault('.mov', 'video/quicktime')
 serve.TYPES.setdefault('.m4v', 'video/mp4')
 for _ext, _type in (('.wav', 'audio/wav'), ('.mp3', 'audio/mpeg'), ('.m4a', 'audio/mp4'), ('.ttf', 'font/ttf'), ('.otf', 'font/otf')):
@@ -240,6 +248,23 @@ def peaks(clip):
     return out
 
 
+def strip(clip):
+    """Tira de miniaturas del clip para la línea de tiempo: una imagen por segundo en una rejilla de 20 columnas."""
+    src, base = SOURCES[clip], os.path.join(PROJECT, 'work', 'mi-estudio', 'strip_%s' % clip)
+    tw, th, cols = 54, 96, 20
+    n = max(1, int(probe_duration(src)) + 1)
+    if not (os.path.isfile(base + '.jpg') and os.path.getmtime(base + '.jpg') >= os.path.getmtime(src)):
+        os.makedirs(os.path.dirname(base), exist_ok=True)
+        rows = n // cols + 1
+        r = subprocess.run([PLAT.get('ffmpeg') or 'ffmpeg', '-v', 'error', '-y', '-i', src, '-vf',
+                            'fps=1,scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,tile=%dx%d' % (tw, th, tw, th, cols, rows),
+                            '-frames:v', '1', '-q:v', '6', base + '.jpg'], capture_output=True)
+        if r.returncode != 0:
+            serve.warn('no se pudieron crear las miniaturas de %s: %s' % (clip, r.stderr.decode('utf-8', 'replace').strip()[-300:]))
+            return {}
+    return {'url': '/p/work/mi-estudio/strip_%s.jpg' % clip, 'step': 1, 'tw': tw, 'th': th, 'cols': cols, 'n': n}
+
+
 def preview_path(clip):
     return os.path.join(PROJECT, 'work', 'mi-estudio', 'prev_%s.mp4' % clip)
 
@@ -281,8 +306,10 @@ def project_info():
     edl = serve.read_json(os.path.join(PROJECT, 'edl.json'), [])
     timeline = serve.read_json(os.path.join(PROJECT, 'timeline.json'), {}) or {}
     clips = {c: {'url': '/src/' + c, 'dur': probe_duration(p)} for c, p in SOURCES.items()}
+    ok, motivo = directo()
     return {'name': os.path.basename(PROJECT), 'fps': 30, 'edl': edl, 'clips': clips,
-            'effects': timeline.get('effects') or [], 'elementos': timeline.get('elementos') or []}
+            'effects': timeline.get('effects') or [], 'elementos': timeline.get('elementos') or [],
+            'directo': ok, 'motivo': motivo}
 
 
 def edicion_dir():
@@ -298,25 +325,36 @@ def edicion_inputs():
             data = serve.read_json(os.path.join(d, f), None)
             if isinstance(data, dict):
                 out[tool] = {'input': data, 'saved': serve.read_json(os.path.join(d, tool + '_edit.json'), None)}
+        elif f.endswith('_edit.json') and serve.KEY_RE.match(f[:-10]) and f[:-10] not in out:
+            # los módulos que siempre están no necesitan <id>.json, solo lo que el usuario dejó
+            out[f[:-10]] = {'input': None, 'saved': serve.read_json(os.path.join(d, f), None)}
     return out
 
 
+def herramientas():
+    """Los módulos de la Edición en el orden en que se cargan: el esquema y capas y audio primero, y el resto por nombre."""
+    d = os.path.join(HERE, 'herramientas')
+    ids = sorted(f[:-3] for f in os.listdir(d) if f.endswith('.js') and serve.KEY_RE.match(f[:-3]))
+    first = [x for x in ('esquema', 'capas', 'audio') if x in ids]
+    return first + [x for x in ids if x not in first]
+
+
 def clean_edicion(raw):
-    """Lo que cada herramienta dejó: {<id>: {...}} solo para herramientas con datos, números y textos cortos."""
+    """Lo que cada herramienta dejó: {<id>: {...}} solo para módulos que existen, con datos JSON de tamaño razonable."""
     if raw is None:
         return {}
     if not isinstance(raw, dict):
         return 'Datos de edición no válidos.'
-    known = set(edicion_inputs())
+    known = set(edicion_inputs()) | set(herramientas()) | {'pistas', 'tiempos'}
 
     def ok(v, depth=0):
         if isinstance(v, bool) or isinstance(v, (int, float)):
             return True
         if isinstance(v, str):
-            return len(v) <= 200
-        if isinstance(v, dict) and depth < 3 and len(v) <= 200:
-            return all(isinstance(k, str) and len(k) <= 60 and ok(x, depth + 1) for k, x in v.items())
-        if isinstance(v, list) and depth < 3 and len(v) <= 200:
+            return len(v) <= 20000
+        if isinstance(v, dict) and depth < 8 and len(v) <= 2000:
+            return all(isinstance(k, str) and len(k) <= 120 and ok(x, depth + 1) for k, x in v.items())
+        if isinstance(v, list) and depth < 8 and len(v) <= 5000:
             return all(ok(x, depth + 1) for x in v)
         return v is None
     out = {}
@@ -379,6 +417,398 @@ def clean_timeline(raw):
     return edl, clean_fx, elementos, formato, picks
 
 
+# ---------- lo que necesitan los paneles de la Edición: archivos, medios, renders, fotograma real, comprobaciones ----------
+OCULTOS = {'.hyperframes', '.thumbnails', '.waveform-cache', 'node_modules', '__pycache__', 'mi-estudio', 'upright', 'cf', 'layout'}
+TIPOS = {'.mp4': 'video', '.mov': 'video', '.webm': 'video', '.m4v': 'video', '.mp3': 'audio', '.wav': 'audio', '.m4a': 'audio', '.aac': 'audio', '.ogg': 'audio',
+         '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.webp': 'image', '.gif': 'image', '.svg': 'image',
+         '.woff2': 'font', '.woff': 'font', '.ttf': 'font', '.otf': 'font', '.cube': 'lut'}
+EDITABLES = ('.json', '.md', '.txt')
+VIDEOS = ('.mp4', '.mov', '.webm', '.m4v')
+EXAMPLES = os.path.join(os.path.dirname(PLATFORM), 'examples')    # donde get_example.py y study.py dejan las referencias
+RENDER = {'running': False, 'log': '', 'output': None, 'error': None, 'proc': None, 'started': 0}
+for _ext, _type in (('.webp', 'image/webp'), ('.svg', 'image/svg+xml'), ('.gif', 'image/gif'), ('.woff2', 'font/woff2'), ('.woff', 'font/woff'), ('.aac', 'audio/aac'), ('.ogg', 'audio/ogg'), ('.cube', 'text/plain')):
+    serve.TYPES.setdefault(_ext, _type)
+
+
+def dentro(root, full):
+    """Como serve.inside, pero también vale para carpetas y archivos que aún no existen."""
+    root, full = os.path.normcase(os.path.abspath(root)), os.path.normcase(os.path.abspath(full))
+    return full != root and full.startswith(root + os.sep)
+
+
+def in_project(rel):
+    full = os.path.normpath(os.path.join(PROJECT, *str(rel).replace('\\', '/').split('/')))
+    return full if dentro(PROJECT, full) else None
+
+
+def list_files():
+    """Árbol del proyecto para el panel Archivos: [{path, size, editable}], sin cachés ni clips de trabajo."""
+    out = []
+    for base, dirs, files in os.walk(PROJECT):
+        dirs[:] = sorted(d for d in dirs if d not in OCULTOS and not d.startswith('.'))
+        for f in sorted(files):
+            full = os.path.join(base, f)
+            rel = os.path.relpath(full, PROJECT).replace('\\', '/')
+            out.append({'path': rel, 'size': os.path.getsize(full), 'editable': f.lower().endswith(EDITABLES)})
+    return out
+
+
+def read_file(rel):
+    full = in_project(rel)
+    if not full or not os.path.isfile(full):
+        return None
+    if os.path.getsize(full) > 3 * 1024 * 1024:
+        return {'path': rel, 'text': None, 'editable': False, 'note': 'Demasiado grande para abrirlo aquí.'}
+    try:
+        with open(full, encoding='utf-8') as f:
+            return {'path': rel, 'text': f.read(), 'editable': rel.lower().endswith(EDITABLES)}
+    except UnicodeDecodeError:
+        return {'path': rel, 'text': None, 'editable': False, 'note': 'Archivo binario.'}
+
+
+def write_file(rel, text):
+    """Guarda un JSON o una nota del proyecto (nunca el HTML: sale de los JSON) y deja la versión anterior en work/mi-estudio/historial."""
+    full = in_project(rel)
+    if not full or not rel.lower().endswith(EDITABLES) or not isinstance(text, str):
+        return 'Aquí solo se pueden editar JSON y notas.'
+    if rel.lower().endswith('.json'):
+        try:
+            json.loads(text)
+        except ValueError as e:
+            return 'El JSON no es válido: %s' % e
+    if os.path.isfile(full):
+        hist = os.path.join(PROJECT, 'work', 'mi-estudio', 'historial')
+        os.makedirs(hist, exist_ok=True)
+        shutil.copyfile(full, os.path.join(hist, '%d-%s' % (int(time.time()), rel.replace('/', '_'))))
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    with open(full, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(text)
+    return None
+
+
+def list_assets(scope):
+    """Medios del proyecto (o de los demás proyectos de su carpeta): [{path, url, type, size, used, project}]."""
+    plan = ''
+    for name in ('plan.json', os.path.join('edicion', 'libres_edit.json')):
+        p = os.path.join(PROJECT, name)
+        if os.path.isfile(p):
+            with open(p, encoding='utf-8', errors='ignore') as f:
+                plan += f.read()
+    out = []
+
+    def walk(root, label, url):
+        for base, dirs, files in os.walk(root):
+            dirs[:] = sorted(d for d in dirs if d not in OCULTOS and not d.startswith('.') and d != 'renders')
+            for f in sorted(files):
+                kind = TIPOS.get(os.path.splitext(f)[1].lower())
+                if kind:
+                    rel = os.path.relpath(os.path.join(base, f), root).replace('\\', '/')
+                    out.append({'path': rel, 'name': f, 'url': url + urllib.parse.quote(rel), 'type': kind, 'size': os.path.getsize(os.path.join(base, f)),
+                                'used': bool(label is None and rel in plan), 'project': label})
+    assets = os.path.join(PROJECT, 'assets')
+    if scope == 'all':
+        parent = os.path.dirname(PROJECT)
+        for name in sorted(os.listdir(parent)):
+            other = os.path.join(parent, name, 'assets')
+            if name != os.path.basename(PROJECT) and os.path.isdir(other):
+                walk(other, name, '/api/asset-otro/%s/' % urllib.parse.quote(name))
+    else:
+        if os.path.isdir(assets):
+            walk(assets, None, '/p/assets/')
+        for rel in referencias():               # la referencia también sale en Medios (su ruta se resuelve desde assets/)
+            f = os.path.join(PROJECT, *rel.split('/'))
+            out.append({'path': '../' + rel, 'name': 'Referencia · ' + os.path.basename(f), 'url': '/p/' + urllib.parse.quote(rel), 'type': 'video',
+                        'size': os.path.getsize(f), 'used': False, 'project': None})
+    return out
+
+
+def import_asset(project, rel):
+    """Copia a este proyecto un medio de otro proyecto de la misma carpeta y devuelve su ruta en assets/."""
+    root = os.path.normpath(os.path.join(os.path.dirname(PROJECT), str(project), 'assets'))
+    full = os.path.normpath(os.path.join(root, *str(rel).split('/')))
+    if not dentro(os.path.dirname(PROJECT), root) or not dentro(root, full) or not os.path.isfile(full):
+        return None
+    dest = os.path.join(PROJECT, 'assets', 'imported', os.path.basename(full))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copyfile(full, dest)
+    return 'assets/imported/' + os.path.basename(full)
+
+
+def list_renders():
+    d = os.path.join(PROJECT, 'renders')
+    out = []
+    for f in os.listdir(d) if os.path.isdir(d) else []:
+        full = os.path.join(d, f)
+        if os.path.isfile(full) and os.path.splitext(f)[1].lower() in ('.mp4', '.mov', '.webm'):
+            out.append({'name': f, 'url': '/p/renders/' + urllib.parse.quote(f), 'size': os.path.getsize(full), 'mtime': os.path.getmtime(full)})
+    return sorted(out, key=lambda r: -r['mtime'])
+
+
+def hf_cmd(*args):
+    return [sys.executable, os.path.join(PLAT['skill_dir'], 'scripts', 'hf.py'), PROJECT] + [str(a) for a in args]
+
+
+def guardar_edits(edits):
+    if isinstance(edits, dict):
+        for tool, data in edits.items():
+            serve.write_picks(os.path.join(edicion_dir(), tool + '_edit.json'), data)
+
+
+def snapshot_frame(t, edits):
+    """El fotograma t tal como saldrá: aplica los JSON al HTML y lo pinta HyperFrames (no la vista previa aproximada)."""
+    if not os.path.isfile(os.path.join(PROJECT, 'index.html')):
+        return None, 'Este proyecto aún no está montado: pulsa Procesar vídeo una vez y podrás ver el fotograma real.'
+    cleaned = clean_edicion(edits)
+    if isinstance(cleaned, str):
+        return None, cleaned
+    guardar_edits(cleaned)
+    try:
+        aplicar.aplicar(PROJECT)
+    except Exception as e:      # noqa: BLE001 - el panel enseña el motivo
+        return None, 'No se pudieron aplicar los JSON: %s' % e
+    start = time.time() - 1
+    # con color, el shader bloquea la página más de los 10 s que HyperFrames espera por defecto al abrirla
+    env = dict(os.environ, PRODUCER_PAGE_NAVIGATION_TIMEOUT_MS='90000')
+    r = subprocess.run(hf_cmd('snapshot', '--at', '%.3f' % float(t), '--no-end', '--describe', 'false'), capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
+    shots = os.path.join(PROJECT, 'snapshots')
+    # el fotograma, no la hoja resumen que HyperFrames escribe al lado; el mismo nombre se sobrescribe si se repite el segundo
+    new = sorted((f for f in (os.listdir(shots) if os.path.isdir(shots) else []) if f.lower().startswith('frame-') and f.lower().endswith(('.png', '.jpg'))
+                  and os.path.getmtime(os.path.join(shots, f)) >= start), key=lambda f: os.path.getmtime(os.path.join(shots, f)))
+    if not new:
+        return None, 'HyperFrames no pudo pintar el fotograma: %s' % (r.stderr or r.stdout)[-300:]
+    return '/p/snapshots/%s?v=%d' % (urllib.parse.quote(new[-1]), int(time.time())), None
+
+
+# ---------- la referencia del vídeo: get_example.py la deja en una carpeta común y aquí se conecta con el proyecto ----------
+def referencias():
+    d = os.path.join(PROJECT, 'ref')
+    return ['ref/' + f for f in sorted(os.listdir(d)) if f.lower().endswith(VIDEOS)] if os.path.isdir(d) else []
+
+
+def adoptar(path):
+    """Copia una referencia a ref/ y, si study.py la estudió, le crea su ficha. Devuelve su ruta en el proyecto."""
+    name = os.path.basename(path)
+    dest = os.path.join(PROJECT, 'ref', name)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    if os.path.abspath(path) != os.path.abspath(dest):
+        shutil.copyfile(path, dest)
+    estudio = os.path.join(EXAMPLES, os.path.splitext(name)[0])
+    out = os.path.join(edicion_dir(), 'referencia.json')
+    if not os.path.isfile(out) and os.path.isfile(os.path.join(estudio, 'study.json')):
+        try:
+            fi = ficha.ficha(dest, estudio)
+            fi['video'] = 'ref/' + name
+            serve.write_picks(out, fi)
+        except (OSError, ValueError, KeyError) as e:
+            serve.warn('no se pudo crear la ficha de %s: %s' % (name, e))
+    return 'ref/' + name
+
+
+def descargas():
+    """Lo que get_example.py ha bajado, lo último primero: [(ruta, fecha)]."""
+    d = os.path.join(EXAMPLES, 'downloads')
+    files = [os.path.join(d, f) for f in os.listdir(d) if f.lower().endswith(VIDEOS)] if os.path.isdir(d) else []
+    return sorted(((f, os.path.getmtime(f)) for f in files), key=lambda x: -x[1])
+
+
+def referencia_auto():
+    """Al abrir un proyecto sin referencia: la que se bajó en las 6 horas antes de empezarlo. Si alguna se estudió, esa
+    (las demás suelen ser ejemplos para meter dentro del vídeo, que se bajan después o sin estudiar)."""
+    origen = os.path.join(PROJECT, 'sources.json')
+    if referencias() or not os.path.isfile(origen):
+        return
+    t0 = min(os.path.getmtime(origen), os.path.getctime(origen))
+    cerca = [f for f, m in descargas() if t0 - 6 * 3600 <= m <= t0 + 120]
+    estudiadas = [f for f in cerca if os.path.isfile(os.path.join(EXAMPLES, os.path.splitext(os.path.basename(f))[0], 'study.json'))]
+    for f in (estudiadas or cerca)[:3]:
+        try:
+            serve.say('STATUS referencia %s' % adoptar(f))
+        except OSError as e:
+            serve.warn('no se pudo copiar la referencia: %s' % e)
+
+
+def referencia_url(url):
+    """Baja una referencia desde su enlace (lo que hace get_example.py) y la deja en el proyecto. Devuelve (ruta, error)."""
+    if not re.match(r'https?://', str(url or '')):
+        return None, 'Pega un enlace que empiece por http.'
+    script = os.path.join(PLAT['skill_dir'], 'scripts', 'get_example.py')
+    r = subprocess.run([PLAT.get('python') or sys.executable, script, str(url)], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    # la línea es "STATUS example READY <archivo>  (7.2 MB, de dónde salió)"
+    m = re.findall(r'STATUS example READY (.+?)(?:\s{2,}\(.*)?\s*$', r.stdout, re.M)
+    if not m:
+        return None, 'No se pudo descargar: %s' % (r.stderr or r.stdout).strip()[-240:]
+    try:
+        return adoptar(os.path.normpath(m[-1].strip().strip('"'))), None
+    except OSError as e:
+        return None, 'Se descargó, pero no se pudo copiar al proyecto: %s' % e
+
+
+def hf_runtime():
+    """El runtime de HyperFrames de la versión fijada, en la caché de npx; None si no se encuentra."""
+    cache = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'npm-cache', '_npx')
+    version = skillenv.HYPERFRAMES.split('@')[-1]
+    for d in sorted(os.listdir(cache)) if os.path.isdir(cache) else []:
+        base = os.path.join(cache, d, 'node_modules', 'hyperframes')
+        info = serve.read_json(os.path.join(base, 'package.json'), None)
+        if isinstance(info, dict) and (not version or info.get('version') == version):
+            full = os.path.join(base, 'dist', 'hyperframe-runtime.js')
+            if os.path.isfile(full):
+                return full
+    return None
+
+
+def exacta_html():
+    """La composición tal como la pinta el render, para verla en el navegador: el index.html con sus rutas en /p/ y el runtime de HyperFrames."""
+    with open(os.path.join(PROJECT, 'index.html'), encoding='utf-8') as f:
+        html = f.read()
+    # __timelines lo crea el servidor de HyperFrames antes de los scripts de la composición
+    html = re.sub(r'(<head[^>]*>)', r'\1<base href="/p/"><script>window.__timelines=window.__timelines||{};</script>', html, count=1)
+    i = html.lower().rfind('</body>')
+    tag = '<script src="/mi/hf-runtime.js"></script>'
+    return html[:i] + tag + html[i:] if i >= 0 else html + tag
+
+
+def preparar_exacta(edits):
+    """Ver resultado: guarda lo que hay en la página y lo pasa al HTML. Devuelve un texto de error o None."""
+    if not os.path.isfile(os.path.join(PROJECT, 'index.html')):
+        return 'Este proyecto aún no está montado: pulsa Procesar vídeo una vez y podrás ver el resultado.'
+    if not hf_runtime():
+        return 'No encuentro HyperFrames en este ordenador.'
+    cleaned = clean_edicion(edits)
+    if isinstance(cleaned, str):
+        return cleaned
+    guardar_edits(cleaned)
+    try:
+        aplicar.aplicar(PROJECT)
+    except Exception as e:      # noqa: BLE001 - el panel enseña el motivo
+        return 'No se pudieron aplicar los JSON: %s' % e
+    return None
+
+
+def directo():
+    """Si se puede exportar sin pasar por Claude: hay un montaje al día y el proyecto no tiene pasos propios tras el render."""
+    html = os.path.join(PROJECT, 'index.html')
+    if not os.path.isfile(html):
+        return False, 'aún no está montado'
+    if os.path.isfile(os.path.join(edicion_dir(), 'audio.json')):
+        return False, 'tiene mezcla de audio propia'
+    conf = serve.read_json(os.path.join(edicion_dir(), 'render.json'), {}) or {}
+    if conf.get('directo') is False:
+        return False, str(conf.get('motivo') or 'tiene pasos propios después del render')
+    work = os.path.join(PROJECT, 'work')        # scripts propios tras el render (glitch_post.py, mixdown.py...): exportar directo se los saltaría
+    if os.path.isdir(work) and any(f.endswith('.py') and re.search(r'post|mix', f) for f in os.listdir(work)):
+        return False, 'tiene pasos propios después del render'
+    for name in ('edl.json', 'plan.json', 'words.json'):
+        p = os.path.join(PROJECT, name)
+        if os.path.isfile(p) and os.path.getmtime(p) > os.path.getmtime(html):
+            return False, 'el último cambio aún no está montado'
+    return True, ''
+
+
+def run_lint():
+    if not os.path.isfile(os.path.join(PROJECT, 'index.html')):
+        return {'ok': False, 'findings': [], 'error': 'Este proyecto aún no está montado.'}
+    r = subprocess.run(hf_cmd('lint', '--json'), capture_output=True, text=True, encoding='utf-8', errors='replace')
+    try:
+        return json.loads(r.stdout[r.stdout.index('{'):])
+    except ValueError:
+        return {'ok': False, 'findings': [], 'error': (r.stderr or r.stdout)[-400:]}
+
+
+def siguiente_version():
+    """<proyecto>-vN con el siguiente N libre, como los renders de siempre."""
+    base = os.path.basename(PROJECT)
+    usados = [int(m.group(1)) for f in (os.listdir(os.path.join(PROJECT, 'renders')) if os.path.isdir(os.path.join(PROJECT, 'renders')) else [])
+              for m in [re.fullmatch(re.escape(base) + r'-v(\d+)\.\w+', f)] if m]
+    return '%s-v%d' % (base, max(usados, default=0) + 1)
+
+
+def start_render(opts, edits, server=None):
+    """Exporta el montaje actual sin pasar por Claude: aplica los JSON al HTML y lanza el render de HyperFrames.
+    Con --until-saved, al acabar se cierra: Claude ve STATUS render DONE, hace las comprobaciones y entrega."""
+    if RENDER['running']:
+        return 'Ya hay un render en marcha.'
+    if not os.path.isfile(os.path.join(PROJECT, 'index.html')):
+        return 'Este proyecto aún no está montado: pulsa Procesar vídeo primero.'
+    cleaned = clean_edicion(edits)
+    if isinstance(cleaned, str):
+        return cleaned
+    guardar_edits(cleaned)
+    fmt = opts.get('format') if opts.get('format') in ('mp4', 'webm', 'mov') else 'mp4'
+    quality = opts.get('quality') if opts.get('quality') in ('draft', 'standard', 'high') else 'high'
+    name = re.sub(r'[^\w.-]+', '-', str(opts.get('name') or '')).strip('-') or siguiente_version()
+    out = 'renders/%s.%s' % (name, fmt)
+    args = ['render', '-o', out, '--quality', quality, '--format', fmt]
+    if opts.get('fps') in (24, 25, 30, 60):
+        args += ['--fps', opts['fps']]
+
+    def work():
+        RENDER.update(running=True, log='', output=None, error=None, started=time.time())
+        try:
+            aplicar.aplicar(PROJECT)
+            p = subprocess.Popen(hf_cmd(*args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
+            RENDER['proc'] = p
+            for line in p.stdout:
+                RENDER['log'] = (RENDER['log'] + line)[-6000:]
+                if server:
+                    server.seen()       # aunque se cierre la pestaña, el render sigue hasta el final
+            p.wait()
+            if p.returncode == 0:
+                RENDER['output'] = out
+                serve.say('STATUS render DONE %s' % out)
+                if UNTIL_SAVED and server:
+                    threading.Timer(4.0, server.stop_soon).start()
+            else:
+                RENDER['error'] = RENDER['log'][-400:] or 'El render falló.'
+        except Exception as e:      # noqa: BLE001 - el panel enseña el motivo
+            RENDER['error'] = str(e)
+        RENDER.update(running=False, proc=None)
+    threading.Thread(target=work, daemon=True).start()
+    return None
+
+
+def render_status():
+    log = RENDER['log']
+    m = re.findall(r'(\d{1,3})\s?%', log)
+    return {'running': RENDER['running'], 'pct': int(m[-1]) if m else None, 'output': RENDER['output'], 'error': RENDER['error'], 'log': log[-800:], 'cierra': UNTIL_SAVED,
+            'elapsed': round(time.time() - RENDER['started']) if RENDER['started'] else 0}
+
+
+def list_blocks():
+    """Bloques y componentes del catálogo de HyperFrames (hyperframes catalog --json). Se guarda en work/mi-estudio."""
+    cache = os.path.join(PROJECT, 'work', 'mi-estudio', 'bloques.json')
+    if os.path.isfile(cache) and time.time() - os.path.getmtime(cache) < 86400:
+        return serve.read_json(cache, {'items': []})
+    r = subprocess.run(hf_cmd('catalog', '--json'), capture_output=True, text=True, encoding='utf-8', errors='replace')
+    try:
+        data = json.loads(r.stdout[min(i for i in (r.stdout.find('{'), r.stdout.find('[')) if i >= 0):])
+    except ValueError:
+        return {'items': [], 'error': (r.stderr or r.stdout)[-300:]}
+    data = {'items': data} if isinstance(data, list) else data
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    serve.write_picks(cache, data)
+    return data
+
+
+def add_block(name):
+    if not serve.KEY_RE.match(str(name)):
+        return None, 'Bloque no válido.'
+    r = subprocess.run(hf_cmd('add', name, '--json'), capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if r.returncode != 0:
+        return None, (r.stderr or r.stdout)[-300:]
+    return (r.stdout or '').strip()[-1200:], None
+
+
+def list_fonts():
+    """Las fuentes que ya hay: las del proyecto y las descargadas por video-studio."""
+    out = []
+    for root, url in ((os.path.join(PROJECT, 'assets', 'fonts'), '/p/assets/fonts/'),):
+        for f in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+            if os.path.splitext(f)[1].lower() in ('.woff2', '.woff', '.ttf', '.otf'):
+                out.append({'file': f, 'url': url + urllib.parse.quote(f), 'family': re.split(r'[-_.]', f)[0]})
+    return out
+
+
 class Handler(serve.Handler):
     server_version = 'MiEstudio/1'
 
@@ -409,13 +839,60 @@ class Handler(serve.Handler):
         if path == '/api/formato':
             return self.send_json(200, {'formato': load_eleccion()})
         if path == '/api/mode':
-            return self.send_json(200, {'project': bool(PROJECT), 'preparar': PREPARAR})
+            return self.send_json(200, {'project': bool(PROJECT), 'preparar': PREPARAR, 'ficha': bool(FICHA), 'resultado': RESULTADO})
         if PROJECT and path == '/api/picks' and not os.path.isfile(self.server.config):
             return self.send_json(200, serve.load_picks(PLAT['picks'], self.server.catalog()))
         if PROJECT and path == '/api/project':
             return self.send_json(200, project_info())
         if PROJECT and path == '/api/edicion':
             return self.send_json(200, edicion_inputs())
+        if path == '/api/herramientas':
+            return self.send_json(200, herramientas())
+        if path == '/mi/hf-runtime.js':
+            full = hf_runtime()
+            return self.send_file(full, head) if full else self.fail(404, 'Not found.')
+        if path == '/api/ficha':
+            return self.send_json(200, FICHA or {})
+        if path == '/mi/ref-video':
+            full = (FICHA or {}).get('video_abs')
+            return self.send_file(full, head) if full and os.path.isfile(full) else self.fail(404, 'Not found.')
+        if PROJECT and path == '/exacta':
+            if not os.path.isfile(os.path.join(PROJECT, 'index.html')):
+                return self.fail(404, 'Not found.')
+            body = exacta_html().encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            return None if head else self.wfile.write(body)
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if PROJECT and path == '/api/files':
+            return self.send_json(200, list_files())
+        if PROJECT and path == '/api/file':
+            info = read_file((qs.get('path') or [''])[0])
+            return self.send_json(200, info) if info else self.fail(404, 'Archivo no encontrado.')
+        if PROJECT and path == '/api/assets':
+            return self.send_json(200, list_assets((qs.get('scope') or ['project'])[0]))
+        if PROJECT and path.startswith('/api/asset-otro/'):
+            parts = urllib.parse.unquote(path[16:]).split('/')
+            root = os.path.normpath(os.path.join(os.path.dirname(PROJECT), parts[0], 'assets'))
+            full = os.path.normpath(os.path.join(root, *parts[1:]))
+            ok = dentro(os.path.dirname(PROJECT), root) and dentro(root, full)
+            return self.send_file(full, head) if ok else self.fail(404, 'Not found.')
+        if PROJECT and path == '/api/referencias':
+            mias = {os.path.basename(r) for r in referencias()}
+            return self.send_json(200, {'proyecto': referencias(), 'descargas': [{'name': os.path.basename(f), 'mtime': m} for f, m in descargas() if os.path.basename(f) not in mias][:20]})
+        if PROJECT and path == '/api/renders':
+            return self.send_json(200, list_renders())
+        if PROJECT and path == '/api/render/status':
+            return self.send_json(200, render_status())
+        if PROJECT and path == '/api/blocks':
+            return self.send_json(200, list_blocks())
+        if PROJECT and path == '/api/fonts':
+            return self.send_json(200, list_fonts())
+        if PROJECT and path.startswith('/api/strip/') and path[11:] in SOURCES:
+            return self.send_json(200, strip(path[11:]))
         if PROJECT and path.startswith('/p/'):
             full = os.path.normpath(os.path.join(PROJECT, *urllib.parse.unquote(path[3:]).split('/')))
             return self.send_file(full, head) if serve.inside(PROJECT, full) else self.fail(404, 'Not found.')
@@ -443,6 +920,8 @@ class Handler(serve.Handler):
             return self.fail(400, edits)
         try:
             subs = edicion.aplicar_subtitulos(PROJECT, edits['capas']) if isinstance(edits.get('capas'), dict) else 0
+            if isinstance(edits.get('subtitulos'), dict):
+                subs += edicion.aplicar_palabras(PROJECT, edits['subtitulos'])
         except (OSError, ValueError, KeyError, TypeError, IndexError):
             return self.fail(500, 'No se pudieron guardar los subtítulos en words.json.')
         textos = ['%s:%d' % (g, len(v['texts'])) for g, v in (edits.get('capas') or {}).items()
@@ -481,23 +960,97 @@ class Handler(serve.Handler):
             picks, error = serve.check_picks(raw['picks'], serve.build_catalog())
             if error:
                 return self.fail(400, error)
+        correccion = str(raw.get('correccion') or '').strip()[:4000]
         try:
             serve.write_picks(ELECCION, {'formato': key})
             if picks:
                 serve.write_picks(self.server.config, picks)
+            if FICHA and correccion:            # lo que el usuario corrigió de la ficha: Claude lo lee antes de cortar
+                FICHA['correccion'] = correccion
+                serve.write_picks(FICHA_PATH, FICHA)
         except OSError:
             return self.fail(500, 'No se pudo guardar.')
         self.send_json(200, {'ok': True})
-        serve.say('STATUS preparar SAVED formato=%s captions=%s effects=%s estilo=%s' % (
+        serve.say('STATUS preparar SAVED formato=%s captions=%s effects=%s estilo=%s ficha=%s' % (
             key or 'none', picks['captionStyle'] if picks else 'none',
-            ','.join(picks['effects']) if picks and picks['effects'] else 'none', picked_style(picks)))
+            ','.join(picks['effects']) if picks and picks['effects'] else 'none', picked_style(picks),
+            ('corregida' if correccion else 'ok') if FICHA else 'none'))
         if UNTIL_SAVED:
             threading.Timer(3.0, self.server.stop_soon).start()
+
+    def upload(self):
+        """Un medio arrastrado al panel Medios: el cuerpo es el archivo; se guarda en assets/imported/<nombre>."""
+        name = os.path.basename((urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get('name') or [''])[0])
+        if not name or os.path.splitext(name)[1].lower() not in TIPOS:
+            return self.fail(400, 'Ese tipo de archivo no se puede importar.')
+        length = int(self.headers.get('Content-Length') or '0')
+        dest = os.path.join(PROJECT, 'assets', 'imported', name)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, 'wb') as f:
+            left = length
+            while left > 0:
+                chunk = self.rfile.read(min(1 << 20, left))
+                if not chunk:
+                    break
+                f.write(chunk)
+                left -= len(chunk)
+        return self.send_json(200, {'path': 'assets/imported/' + name, 'url': '/p/assets/imported/' + urllib.parse.quote(name), 'type': TIPOS[os.path.splitext(name)[1].lower()]})
+
+    def project_post(self, path):
+        """Las peticiones de los paneles de la Edición."""
+        if path == '/api/upload':
+            return self.upload()
+        raw = self.read_body()
+        raw = raw if isinstance(raw, dict) else {}
+        if path == '/api/file':
+            err = write_file(str(raw.get('path') or ''), raw.get('text'))
+            return self.fail(400, err) if err else self.send_json(200, {'ok': True})
+        if path == '/api/assets/import':
+            rel = import_asset(raw.get('project'), raw.get('path'))
+            return self.send_json(200, {'path': rel}) if rel else self.fail(404, 'No se encontró ese medio.')
+        if path == '/api/renders/delete':
+            full = in_project('renders/' + os.path.basename(str(raw.get('name') or '')))
+            if not full or not os.path.isfile(full):
+                return self.fail(404, 'No se encontró ese render.')
+            os.remove(full)
+            return self.send_json(200, {'ok': True})
+        if path == '/api/render':
+            err = start_render(raw.get('opts') if isinstance(raw.get('opts'), dict) else {}, raw.get('edicion'), self.server)
+            return self.fail(400, err) if err else self.send_json(200, {'ok': True})
+        if path == '/api/render/cancel':
+            p = RENDER.get('proc')
+            if p and os.name == 'nt':       # hf.py lanza node, y node lanza Chrome: hay que parar el árbol entero
+                subprocess.run(['taskkill', '/T', '/F', '/PID', str(p.pid)], capture_output=True)
+            elif p:
+                p.terminate()
+            return self.send_json(200, {'ok': True})
+        if path == '/api/snapshot':
+            url, err = snapshot_frame(raw.get('t') or 0, raw.get('edicion'))
+            return self.fail(400, err) if err else self.send_json(200, {'url': url})
+        if path == '/api/referencias/usar':
+            f = os.path.join(EXAMPLES, 'downloads', os.path.basename(str(raw.get('name') or '')))
+            return self.send_json(200, {'path': adoptar(f)}) if os.path.isfile(f) else self.fail(404, 'No se encontró esa descarga.')
+        if path == '/api/referencias/url':
+            rel, err = referencia_url(raw.get('url'))
+            return self.fail(400, err) if err else self.send_json(200, {'path': rel})
+        if path == '/api/exacta':
+            err = preparar_exacta(raw.get('edicion'))
+            return self.fail(400, err) if err else self.send_json(200, {'url': '/exacta?v=%d' % int(time.time() * 1000)})
+        if path == '/api/lint':
+            return self.send_json(200, run_lint())
+        if path == '/api/blocks/add':
+            out, err = add_block(raw.get('name'))
+            return self.fail(400, err) if err else self.send_json(200, {'ok': True, 'output': out})
+        return self.fail(404, 'Not found.')
 
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
         if path == '/api/preparar' and PREPARAR and self.host_ok() and self.origin_ok():
             return self.save_preparar()
+        if PROJECT and path in ('/api/upload', '/api/file', '/api/assets/import', '/api/renders/delete', '/api/render', '/api/render/cancel', '/api/snapshot', '/api/exacta', '/api/lint', '/api/blocks/add', '/api/referencias/usar', '/api/referencias/url'):
+            if not self.host_ok() or not self.origin_ok():
+                return self.fail(403, 'Solo desde localhost.')
+            return self.project_post(path)
         if path not in ('/api/filtro', '/api/timeline', '/api/formato'):
             return super().do_POST()
         if not self.host_ok() or not self.origin_ok():
@@ -540,9 +1093,16 @@ def main():
     ap.add_argument('--until-saved', action='store_true')
     ap.add_argument('--project')
     ap.add_argument('--preparar', action='store_true')
+    ap.add_argument('--ficha', help='ficha de la referencia (ficha.py): se enseña antes de cortar')
+    ap.add_argument('--referencia', action='append', default=[], help='con --project: vídeo de referencia (el archivo que imprime get_example.py); se copia a ref/')
+    ap.add_argument('--resultado', action='store_true', help='con --project: abre enseñando el vídeo montado, para aprobarlo antes del render')
     args = ap.parse_args()
 
-    global PROJECT, UNTIL_SAVED, PREPARAR
+    global PROJECT, UNTIL_SAVED, PREPARAR, FICHA, FICHA_PATH, RESULTADO
+    RESULTADO = args.resultado
+    if args.ficha:
+        FICHA_PATH = os.path.abspath(args.ficha)
+        FICHA = serve.read_json(FICHA_PATH, None)
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
     picks = PLAT['picks']
@@ -556,7 +1116,14 @@ def main():
                 SOURCES[clip] = os.path.normpath(path)
                 PREVIEWS[clip] = threading.Event()
         picks = os.path.join(PROJECT, 'picks.json')
+        edicion.montado(PROJECT)                # antes de guardar nada: con qué valores de Capas está montado
         UNTIL_SAVED = args.until_saved          # en modo proyecto se cierra al guardar la línea de tiempo
+        for f in args.referencia:
+            if os.path.isfile(f):
+                serve.say('STATUS referencia %s' % adoptar(f))
+            else:
+                serve.warn('no existe la referencia: %s' % f)
+        referencia_auto()
     elif args.preparar:
         PREPARAR = True
         UNTIL_SAVED = args.until_saved          # se cierra al pulsar Empezar a editar
