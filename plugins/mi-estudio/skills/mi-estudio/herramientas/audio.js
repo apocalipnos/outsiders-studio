@@ -24,7 +24,8 @@
     U.stems.forEach(function (s) {
       var b = U.bufs[s.id];
       if (!b || at >= b.duration) return;
-      var src = U.ctx.createBufferSource(); src.buffer = b; src.connect(U.nodes[s.id].gain);
+      var src = U.ctx.createBufferSource(); src.buffer = b; src.connect(U.nodes[s.id].input || U.nodes[s.id].gain);
+      src.playbackRate.value = A.state().rate;
       src.start(0, at); U.srcs.push(src);
     });
     U.t0 = U.ctx.currentTime; U.off = at;
@@ -75,14 +76,16 @@
         var v = saved[s.id];
         U.st[s.id] = { db: v != null && v > -60 ? v : s.default || 0, mute: v != null && v <= -60, solo: false };
       });
-      U.ctx = new AudioContext();
-      U.out = U.ctx.createAnalyser(); U.out.fftSize = 1024; U.out.connect(U.ctx.destination);
+      var G = A.audio();                // el grafo es del núcleo: Audio FX se engancha a las mismas pistas
+      U.ctx = G.ctx;
+      U.out = U.ctx.createAnalyser(); U.out.fftSize = 1024; U.out.connect(G.master);
       U.stems.forEach(function (s) {
         var g = U.ctx.createGain(), an = U.ctx.createAnalyser(); an.fftSize = 1024;
         g.connect(an); an.connect(U.out);
         U.nodes[s.id] = { gain: g, an: an };
+        G.stems[s.id] = U.nodes[s.id];
         if (s.id === 'voice') {         // la voz son los propios clips de la vista previa: pasan por su volumen
-          A.state().deck.forEach(function (v) { try { U.ctx.createMediaElementSource(v).connect(g); } catch (e) {} });
+          G.voiceOut.disconnect(); G.voiceOut.connect(g);
           return;
         }
         fetch(A.url(s.src)).then(function (r) { return r.arrayBuffer(); }).then(function (b) { return U.ctx.decodeAudioData(b); })
@@ -120,11 +123,11 @@
         '<div class="tl-row"><label>Volumen</label><input class="au-fader" type="range" data-p="audio" data-k="db" data-id="' + s.id + '" min="' + MIN + '" max="' + MAX + '" step="0.5" value="' + x.db + '">' +
         '<span class="v au-v">' + dbText(s.id) + '</span></div>' +
         '<div class="tl-acts"><button data-p="audio" data-b="mute" data-id="' + s.id + '" class="' + (x.mute ? 'on' : '') + '">' + (x.mute ? 'Activar' : 'Silenciar') + '</button>' +
-        '<button data-p="audio" data-b="solo" data-id="' + s.id + '" class="' + (x.solo ? 'on' : '') + '">Solo</button>' +
+        '<button data-p="audio" data-b="solo" data-id="' + s.id + '" class="' + (x.solo ? 'on' : '') + '">Solo esta</button>' +
         '<button data-p="audio" data-b="reset" data-id="' + s.id + '">Restablecer (' + (s.default || 0) + ' dB)</button></div>' +
         '<div class="au-meter" data-id="' + s.id + '"><i></i></div>' +
         '<div class="tl-row au-master"><label>Salida</label><div class="au-meter"><i class="au-mm"></i></div><span class="v au-peak">-∞ dB</span></div>' +
-        '<div class="help">Dale a reproducir y mueve la barra mientras suena. Solo deja oír esta pista (no se guarda). El pico de la salida no debería pasar de -1 dB.</div>';
+        '<div class="help">Dale a reproducir y mueve la barra mientras suena. Solo esta deja oír únicamente esta pista (no se guarda). El pico de la salida no debería pasar de -1 dB.</div>';
     },
     onClick: function (b) {
       var x = U.st[b.dataset.id], s = stem(b.dataset.id);
@@ -148,7 +151,7 @@
     onPlay: function (t) { U.hold = 0; U.ctx.resume().then(function () { start(t); }); },
     onStop: function () { stopSrc(); },
     onTick: function (t) {
-      if (U.srcs.length && Math.abs(U.off + U.ctx.currentTime - U.t0 - t) > 0.12) start(t);   // un corte o un salto: se recoloca
+      if (U.srcs.length && Math.abs(U.off + (U.ctx.currentTime - U.t0) * A.state().rate - t) > 0.12) start(t);   // un corte o un salto: se recoloca
       meters();
     },
     snap: function () { var o = {}; U.stems.forEach(function (s) { o[s.id] = { db: U.st[s.id].db, mute: U.st[s.id].mute }; }); return o; },

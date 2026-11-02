@@ -57,25 +57,27 @@ compartirlo con el equipo hay que copiarlo al repo del plugin (ver su README).
 En TODA edición con video-studio Mi Estudio se abre DOS veces: antes de cortar (formato, subtítulos, efectos) y
 después del primer corte (línea de tiempo). Sigue el workflow de video-studio con estos cambios:
 
-0. **Antes de cortar nada**, en cuanto el usuario dice "edítalo": abre en segundo plano
-   `PY "<MI>/mi_estudio.py" --preparar --until-saved` y di en una línea:
+0. **Antes de cortar nada**, en cuanto el usuario dice "edítalo", lanza a la vez y en segundo plano:
+   - `PY "<MI>/preparar_clips.py" "<proyecto>" "<clips o carpeta>"`: escribe `sources.json`, gira los clips que lo necesiten, transcribe con la tarjeta gráfica si hay (`work/islands_cN.txt`) y deja hechas las copias de Mi Estudio. Acaba en `STATUS clips READY ...`.
+   - `PY "<MI>/mi_estudio.py" --preparar --until-saved`, y di en una línea:
    "Te he abierto Mi Estudio: elige formato, subtítulos y efectos y pulsa Empezar a editar." Si nombró un
    formato en su mensaje, escríbelo antes en `DATA/eleccion-formato.json` para que salga ya marcado. No empieces a
-   cortar hasta ver `STATUS preparar SAVED formato=<key|none> captions=... effects=...`. Mientras espera puedes
-   adelantar `ingest.py` (no depende del formato), pero no escribas `edl.json`.
+   cortar hasta ver `STATUS preparar SAVED formato=<key|none> captions=... effects=...` y `STATUS clips READY`. No uses `ingest.py`: transcribe con un modelo inglés que aquí no sirve.
+   Mira un fotograma de `work/upright/cN.mp4` antes de cortar: si un apaisado no debía girarse, repite con `--no-girar`.
    Al verlo: el formato es el de esa línea (también en `DATA/eleccion-formato.json`); los subtítulos y efectos quedan
    en los picks globales (el proyecto los hereda). Si hay formato, lee su `formato.md` antes de cortar y aplica
    sus reglas de corte y encuadre. Escribe `<proyecto>/formato.json` = `{"formato": "<key>"}` (o null).
-1. Pasos 1-3 de video-studio como siempre: `ingest.py`, escribir `edl.json`, `assemble.py`. Si graba en
-   español: transcribe con Whisper multilingüe (language es), no con los modelos `.en` del Studio.
+1. **Elige las tomas leyendo `work/tomas.txt`** (no las islas enteras: es lo mismo sin los tiempos de cada palabra, un 60 % menos), escribe `<proyecto>/work/corte.txt` con números de isla y el texto bien escrito, y `PY ".../tomas.py" "<proyecto>" --corte "<proyecto>/work/corte.txt"` saca `edl.json` con los tiempos exactos; la sintaxis está en su ayuda. Si la otra voz pregunta y se queda, `tomas.py "<proyecto>" --preguntas` rehace la lista. Las marcas `*` y `r3` son pistas: **decide tú**, porque elegir solo con reglas se probó contra 5 cortes aprobados y no vale (mete comentarios como "Me he rayado un poco" y no reconoce frases reescritas). Luego monta (ver `overlay_edl.py` abajo). Toda transcripción va con
+   `PY ".../transcribir.py" "<proyecto>" islas|clips|corte [--prompt "..."]`, nunca con los modelos `.en` del Studio ni copiando un script al proyecto: usa la tarjeta si puede (10 veces más rápido y, medido en dos vídeos, con menos fallos que el procesador) y, si no, el procesador. En `tomas.txt`, `ELLA` marca la voz aguda (pensado para quien apunta el texto): si quien graba tiene la voz aguda, sus tomas salen así y no significa nada.
 2. Propón dónde va cada efecto: con los picks del proyecto (`<proyecto>/picks.json`, o si no existe los globales) y el texto de cada fragmento (`line` en `edl.json`), escribe `<proyecto>/timeline.json`:
    `{"effects": [{"key": "<efecto>", "from": <seg>, "to": <seg>}]}` en segundos del montaje (suma de duraciones de `edl.json`), un efecto como mucho una vez, sobre la frase que encaje. Sin efectos elegidos: `{"effects": []}`.
    Con formato, añade `"elementos": [{"id", "label", "from", "to"}]` como diga su `formato.md` (p. ej. tierlist: un
    elemento por cosa clasificada, de cuando se nombra a cuando se da el veredicto). Salen en la pista "Formato".
 3. Abre la revisión en segundo plano: `PY "<MI>/mi_estudio.py" --project "<proyecto>" --until-saved`. Di en una línea: "Ya tienes el primer corte en Mi Estudio: ajusta la pestaña Edición y pulsa Procesar vídeo." (se abre directamente en Edición; las otras pestañas siguen disponibles para cambiar algo) No sigas hasta ver `STATUS timeline SAVED`. Para retocar capas, encuadre o audio de un vídeo ya montado se abre igual: TODO ajuste fino va en la pestaña Edición, nunca en una ventana suelta (ver "Pestaña Edición").
+   **Un solo botón:** si solo cambió color, efectos de audio, animación, estilo, capas añadidas o pistas ocultas, y el montaje está al día, el botón dice **Exportar vídeo** y renderiza sin esperarte. Al acabar se cierra con `STATUS render DONE <salida>`: comprueba y entrega ese archivo (paso 4, último punto). Si cambió cortes, tiempos de capas, textos, subtítulos, formato, estilo, pistas de audio, o te pide algo, dice **Procesar vídeo** y llega `STATUS timeline SAVED`. Si el proceso acaba en `STATUS picker CLOSED` sin ninguna de las dos, cerró la pestaña sin pedir nada: pregúntale en una línea. Nunca se ofrece si el proyecto tiene `edicion/audio.json`, un `work/*post*.py` o `work/*mix*.py`, o si escribes `edicion/render.json` = `{"directo": false, "motivo": "..."}`: escríbelo cuando el proyecto tenga algún otro paso propio tras el render.
 4. Al ver `STATUS timeline SAVED ... edl=changed|same ...`:
    - `edl=changed`: vuelve a correr `assemble.py` (los cortes nuevos están en `edl.json`; los anteriores en `edl_prev.json`).
-   - Sigue con los pasos 4-6 de video-studio (transcribe_cut, marks, layout, init_project). Si volviste a
+   - Sigue con los pasos 4-6 de video-studio (`transcribir.py corte --prompt "..."` en vez de transcribe_cut, marks, layout, init_project). Si volviste a
      transcribir y existe `edicion/subtitulos.json`, después de limpiar `words.json` corre
      `edicion.reaplicar_subtitulos(proj)` (vuelve a poner los subtítulos que el usuario reescribió; ver "Pestaña Edición").
    - `textos=...` en la línea STATUS (p. ej. `textos=title:1,subtitulos:2`): el usuario cambió textos en Edición. Los
@@ -91,9 +93,19 @@ después del primer corte (línea de tiempo). Sigue el workflow de video-studio 
      estructura grabada no encaja, díselo en una línea antes de renderizar.
    - `edicion=<ids>`: el usuario tocó esas herramientas de Edición; vuelve a correr lo que las lee (el script del
      plan para `capas`, la mezcla para `audio`) antes de renderizar. Con solo `audio` cambiado basta con volver a
-     mezclar sobre el último render, sin renderizar de nuevo.
-   - Render y comprobaciones como en video-studio (sonido incluido).
-5. Si después del render el usuario quiere retocar cortes, efectos, capas, encuadre o volúmenes, repite desde el paso 3 con el mismo proyecto.
+     mezclar sobre el último render, sin renderizar de nuevo. Posición, tamaño y textos de `capas` y los tiempos de las capas
+     (`tiempos`) ya los aplica `aplicar.py`: el usuario los exporta sin ti, y si llegan junto a otra cosa, montar de nuevo los deja igual.
+   - `claude` en `edicion=` o `guion` con comentarios: lee `edicion/claude_edit.json` (`peticiones`) y
+     `edicion/guion_edit.json` (`comments`): son cambios que el usuario te pide por escrito. Hazlos o dile en una línea cuál no.
+   - **Justo antes de CADA render, con `build_reel.py` ya hecho:** `PY "<MI>/aplicar.py" "<proyecto>"`. Pasa al
+     `index.html` el color, los efectos de audio, los fotogramas clave, los estilos, las capas libres y las pistas ocultas. Sin esto,
+     lo que el usuario hizo en esos paneles no sale. Lee sus `avisos`. Si solo cambiaron esos JSON (`edl=same` y ni `capas` ni
+     `textos`), no hace falta reconstruir: `aplicar.py` y renderizar.
+   - Mezcla con ffmpeg (proyectos con `audio.json`): el HTML no manda en el sonido final, así que añade a cada pista `edicion.filtro_audio(proj, '<pista>')`
+     como `-af` (cadena de Audio FX; la reverb no tiene equivalente y se salta).
+   - **No renderices todavía** (cada render son ~4 min por vuelta). Con todo construido y `aplicar.py` corrido, abre `PY ".../mi_estudio.py" --project "<proyecto>" --resultado --until-saved`, que arranca enseñando el vídeo montado, y di en una línea: "Ya lo tienes montado: míralo en Mi Estudio y pulsa Exportar vídeo cuando esté bien." Si llega `STATUS timeline SAVED` con cambios, vuelve a este paso 4.
+   - **Solo al aprobar:** con `STATUS render DONE <salida>`, el render ya está: corre sobre él `frames_check.py` y `check_cuts.py --phone`, míralos, comprueba el sonido y entrega. Si el proyecto tiene pasos propios tras el render (el botón dice Procesar vídeo y llega `edl=same` sin cambios), renderiza tú con `hf.py ... render -o renders/<slug>-vN.mp4 --quality high`, pásale esos pasos y las mismas comprobaciones. Si una comprobación falla, arregla y repite el render una vez.
+5. Si tras entregar el usuario quiere retocar cortes, efectos, capas, encuadre o volúmenes, repite desde el paso 3 con el mismo proyecto.
 
 En la línea de tiempo el usuario puede recortar bordes, **partir un fragmento en el cursor** (S o ✂: para quitar un
 trozo del centro parte dos veces y quita el del medio) y quitar fragmentos. Un fragmento partido sale en `edl.json`
@@ -106,6 +118,16 @@ con `overlay_edl.py` (aunque no haya vídeos superpuestos), no con `assemble.py`
 - aplica `"speed"` por fragmento (`"speed": 1.2` = 20 % más rápido, tono de voz intacto con rubberband). Pregunta
   si quiere sus partes habladas aceleradas (1.2x suele ir bien en vídeos de lista). La línea de tiempo enseña los fragmentos ya acelerados y la vista previa suena a esa velocidad.
   `segments.json` guarda el `speed` de cada fragmento.
+
+### A partir de una referencia
+
+Cuando el usuario da una referencia (enlace o archivo) para copiar su formato, su estilo o ambos:
+1. Descárgala y estúdiala con video-studio (`get_example.py`, `study.py`). Para vídeos en español usa `--no-words` o trata la transcripción solo como recuento: su modelo es `small.en`.
+2. `PY "<MI>/ficha.py" "<vídeo>" --estudio "<carpeta de study.py>" --out "<ficha.json>"` mide lo medible sin gastar tokens. Mira sus hojas y rellena en ese JSON `notas` (tipografia, subtitulos, elementos, estructura, ritmo) y `no_igualable`. El ritmo de cortes no se mide a propósito (los saltos de una persona hablando no se detectan): descríbelo con palabras en `notas.ritmo`.
+3. Guarda el estilo (video-studio, "Replicate") y/o el formato (ver "Formatos") y déjalos marcados en los picks y en `eleccion-formato.json`.
+4. En el paso 0, abre `--preparar --ficha "<ficha.json>" --until-saved`: sale primero la ficha con lo que se va a usar, y el usuario puede empezar a editar desde ahí. Con `ficha=corregida` en la línea STATUS, lee `correccion` en la ficha y aplícala antes de cortar.
+5. **Abre siempre la revisión con la referencia:** `mi_estudio.py --project "<proyecto>" --referencia "<archivo que imprimió get_example.py>" --until-saved` (una vez por referencia). La copia a `ref/`, sale cargada en la pestaña Referencia y en Medios, y si `study.py` la estudió le crea la ficha. Si se te olvida, al abrir se busca sola: la estudiada en las 6 horas antes de `sources.json` (`STATUS referencia <ruta>`). Si ya hiciste la ficha con notas, en vez de eso: `PY ".../ficha.py" --a-proyecto "<ficha.json>" "<proyecto>"`. El usuario también puede pegar un enlace en esa pestaña.
+6. Compara al final con `side_by_side.py` como dice video-studio.
 
 ### Vídeos superpuestos (clips de ejemplo, b-roll en tarjeta)
 
@@ -144,24 +166,37 @@ Abre Mi Estudio después de correr el script del plan, para que la pista Capas e
 
 ## Pestaña Edición (el sitio de todos los ajustes finos)
 
-La pestaña "4 · Edición" de Mi Estudio con proyecto es UNA sola vista, como un editor de vídeo (CapCut): arriba la
-vista previa grande con las capas en su sitio (se tocan, se arrastran y el círculo azul de su esquina cambia el
-tamaño ahí mismo) y un panel que cambia según lo que tocas; debajo una línea de tiempo con todas las pistas: Vídeo y
-voz (recortar, partir), Capas (cuándo sale cada una), Efectos, Música, Efectos de sonido... Encima de la línea de
-tiempo, Encuadre (acerca el plano de todos los clips) y en la vista previa la casilla Zona segura. Un separador entre
-vista previa y línea de tiempo reparte el alto. El usuario NO quiere pestañas ni ventanas por función (dicho el
-2026-10-28: "como una verdadera timeline de CapCut"), y quiere ir añadiendo funciones aquí poco a poco. Un único botón
-Procesar vídeo guarda todo.
+Con proyecto, Mi Estudio es UNA sola vista con la estructura de HyperFrames Studio: barra superior
+(Edición / Guion, deshacer, Ver resultado, Panel, Procesar vídeo); y, como en CapCut, vista previa grande a la derecha de arriba abajo con su transporte, a su izquierda la barra lateral con pestañas (Clips, Medios, Catálogo, Archivos) y el panel (Ajustes, Capas, Referencia, Exportar, Datos), y debajo de ellos la línea de
+tiempo abajo; todo redimensionable. Nada de ventanas por función: es una verdadera timeline
+de CapCut, y las funciones nuevas se añaden aquí. Un único botón Procesar vídeo guarda todo. Toda la lógica es JSON:
+el `index.html` se deriva con `aplicar.py` y no se edita desde la página (el panel Archivos solo edita JSON y notas).
 
-Recortar es del núcleo (`timeline.js`). Lo demás son módulos de `herramientas/*.js` que se enchufan a esa misma vista
-y salen cuando el proyecto trae sus datos en `<proyecto>/edicion/<id>.json`; lo que el usuario deja va a
-`<proyecto>/edicion/<id>_edit.json` y la línea STATUS lo dice (`edicion=capas,audio`). Para los scripts del
+**Nombres:** en la interfaz y al hablar con el usuario, palabras de creador como en CapCut, sin jerga de colorista, de audio ni de programador.
+Clip (no fragmento), Ajustes (no Diseño), Exportar (no Renders), Datos (no Variables), Plantillas (no Bloques), Capas
+añadidas (no libres), Animación y puntos (no fotogramas clave), Ver resultado (no Fotograma real), Tijeras (no Cuchilla), Filtros (no Preset), Fondo y Borde
+(no Relleno y Trazo). Por dentro nada cambia: ids, módulos y claves de JSON siguen como están (`claves`, `libres`, `bloques`, `renders`...), y en este archivo se les llama por su módulo.
+
+Qué trae cada sitio (lo que tenía Studio, más lo que ya tenía Mi Estudio):
+- **Línea de tiempo** (`timeline.js`): seleccionar y tijeras (B; Mayús+clic parte todas las pistas), imán, partir (S), marcas, miniaturas y onda en los clips, ojo por pista, ver todo y zoom (Ctrl+rueda), mover clips para cambiar el orden, varias capas a la vez (Mayús+clic o marco), agrupar (Ctrl+G), zona de trabajo (I/O/A/E).
+- **Transporte:** J/K/L, bucle, velocidad, volumen, silencio, ir a un fotograma, pantalla completa, y el botón de teclas con todas.
+- **Vista previa:** cuadrícula con imán, zona segura, Zoom general, Referencia (`referencia.js`). La vista previa es aproximada en color y efectos; **Ver resultado** (`resultado.js`) enseña encima el vídeo de verdad, en el propio navegador: el `index.html` con los JSON aplicados y el runtime de HyperFrames, sin render. Sigue al cursor y reproduce, y se edita encima, como en CapCut: las capas se cogen, se arrastran y cambian de tamaño desde sus cuatro esquinas sobre el vídeo real. Posición, tamaño y color del vídeo se pintan al momento; lo demás (tiempos en la línea, textos, estilo, animación) vuelve a montar el HTML por debajo y se cambia sin parpadeo en 1 s; lo que necesita Procesar (cortes, efectos, zoom general, textos de subtítulos, volúmenes de pistas) lo avisa. Con color, la primera vez en cada navegador puede tardar un minuto mientras compila el shader.
+- **Ajustes** según lo elegido: tiempo, velocidad y encuadre por clip; `color.js` (filtros, luz y color, color por zonas, curvas, cambiar por tono, cambiar un color, LUT, viñeta, grano, 18 efectos de imagen, paleta, medidores); `audiofx.js` (16 efectos de audio, ajustes rápidos, cambios en el tiempo); `claves.js` (animación con puntos, suavidad, recorrido, giro 3D, grabar gestos con R); `estilo.js` (texto, fondo, borde, esquinas, sombra, mezcla, recorte, orden); `subtitulos.js` (palabras: corregir y mover); `claude.js` (pedirte un cambio).
+- **Pestañas:** `archivos.js`, `escenas.js`, `medios.js` (importar y colocar), `bloques.js` (catálogo de HyperFrames dentro de Catálogo), `capaslista.js`, `renders.js` (exportar directo y historial), `variables.js`, `guion.js` (vista Guion con comentarios), `comprobar.js` (lint y avisos propios), `libres.js` (capas nuevas: texto, imagen, vídeo, audio, bloque).
+- **Sin pasar:** presentaciones con puntos clicables (Slideshow, Hotspots), render en la nube y enviar opiniones al equipo de HyperFrames: no sirven para reels.
+
+Recortar es del núcleo (`timeline.js`). Lo demás son módulos de `herramientas/*.js` que se cargan solos y se enchufan a esa misma
+vista; sus ganchos y el formato de cada JSON están en `herramientas/CONTRATO.md`. Los que dependen del proyecto (capas, audio) salen cuando
+trae sus datos en `<proyecto>/edicion/<id>.json`; lo que el usuario deja va a `<proyecto>/edicion/<id>_edit.json` y la línea STATUS lo dice
+(`edicion=capas,audio,color`). `pistas`, `color`, `audiofx`, `estilo`, `claves` y `libres` los aplica `aplicar.py`. Para los scripts del
 proyecto, `edicion.py`:
 ```python
 sys.path.insert(0, '<MI>'); import edicion
 G = edicion.editado(proj, 'capas', propuesto)   # lo propuesto con lo que el usuario cambió encima, grupo a grupo
 edicion.ofrecer(proj, 'capas', {...})           # lo que enseña el módulo (escríbelo cada vez que corre el plan)
 edicion.texto(proj, 'title', el, propuesto)     # el texto de un item tal como lo dejó el usuario (ver "Textos")
+edicion.variable(proj, 'nombre', por_defecto)   # un valor del panel Datos
+edicion.filtro_audio(proj, 'voice')             # la cadena de Audio FX de una pista como -af de ffmpeg
 ```
 
 **Capas y encuadre** (`herramientas/capas.js`; `capas.json`, lo escribe el script del plan): `{"video", "grade": <filter
@@ -176,11 +211,12 @@ ver "Textos de títulos y subtítulos").
   en `css`; el plan lo mete dentro de su envoltorio posicionado. Las rutas relativas (`assets/...`) las sirve Mi Estudio.
 - `el` = el id de su capa en la pista Capas (`capas.timed(id, ...)`): la vista previa la enseña cuando dice ese
   bloque, y al tocar el bloque el panel trae también su posición y tamaño. Sin `el` (subtítulos) usa from/to.
-- Un grupo por cosa que se mueve junta (todas las tarjetas, todos los títulos...); el cambio vale para todo el grupo.
+- Un grupo por cosa que se mueve junta (todas las tarjetas, todos los títulos...); el cambio vale para todo el grupo. Toda capa que se vea va en un grupo: si no, en el visor no se puede coger.
+- `aplicar.py` mueve cada item sin volver a correr el plan: mete su caja `.me-c` alrededor del envoltorio que tiene dentro justo el `html` del item (en el plan, `<div style='{pos}'>{html}</div>`), y si no lo encuentra tal cual, alrededor de toda la capa. Lo que deba quedarse quieto (un degradado) va fuera del envoltorio. Cuenta desde los valores que devolvió `edicion.editado`, así que el plan tiene que leerlos con esa función.
 - `capas_edit.json`: `{<grupo>: {...}, "reframe": {"zoom"}}`; el zoom va a `plan["reframe"] = {"zoom": z}`.
 - Ejemplo hecho: `<MI>/ejemplos/test-finanzas/gen_plan.py`.
 
-**Textos de títulos y subtítulos** (en el mismo módulo Capas; desde 2026-10-29, para todos los vídeos): al tocar una
+**Textos de títulos y subtítulos** (en el mismo módulo Capas, para todos los vídeos): al tocar una
 capa con texto, el panel trae un campo Texto con el del item que se ve en el cursor (o el del bloque de la pista Capas
 que tocaste); con doble clic encima de la capa se escribe en la misma vista previa (Intro termina, Esc deshace, clic
 fuera también termina; Ctrl+Z deshace). Arrastrar y redimensionar siguen igual.
@@ -223,17 +259,9 @@ en bucle, efectos...) y sale como pista con su onda; la pista `voice` es la voz 
 elige tocando el nombre "Vídeo y voz"). `audio_edit.json`: `{<id>: dB}` (-60 = silenciada). La mezcla final se hace
 con ffmpeg sobre la imagen del render (sin volver a renderizar). Ejemplo hecho: `<MI>/ejemplos/test-finanzas/stems.py` + `mixdown.py`.
 
-**Añadir una función nueva**: un módulo `herramientas/<id>.js` con `Timeline.use({id, owns: ['<tipo de selección>'],
-init(api, input, saved) -> true si hay datos, ...})` y su `<script>` en `index.html`; estilos en `timeline.css`.
-Ganchos que puede tener (todos opcionales): `toolbar()` (html junto a Zoom), `tracks()` + `drawTracks(inner)` (pistas
-propias; un elemento con `data-pick="<tipo>" data-id` lo elige), `labelExtra(id)`, `paint(t)` (vista previa en el
-segundo t; su capa va en `api.state().el.ov`, lienzo de 1080x1920), `inspector(sel)` (panel cuando lo elegido es de su
-tipo), `inspectorExtra(sel, f)`, `helpExtra()`, `onClick(btn, e)` / `onInput(el)` (botones e inputs con `data-p="<id>"`),
-`key(e)` (true si usó la tecla), `onPlay(t)`, `onStop()`, `onTick(t)`, `snap()` / `restore(v)` (deshacer), `data()` (lo
-que va a `<id>_edit.json`). `api`: `state()`, `select(sel)`, `remember()` (antes de cambiar, para deshacer),
-`touched(id)` (se guardará), `refresh()` (panel y vista previa), `redraw()` (todo), `stop()`, `fxRange`, `timeToX`,
-`xToTime`, `url(ruta)`, `html(html)`, `esc`, `clamp`, `W`, `H`. Mira `herramientas/capas.js` y `audio.js`. Luego
-añade aquí qué hace y su formato.
+**Añadir una función nueva**: deja un módulo `herramientas/<id>.js` con `Timeline.use({id, init(api, input, saved) -> true si
+está activo, ...})`: se carga solo. Ganchos, `api` y estilos: `herramientas/CONTRATO.md`. Si lo que hace tiene que llegar al
+vídeo, añade también su paso a `aplicar.py`. Luego añade aquí qué hace y su formato.
 
 ## Imágenes de películas y series (TMDB)
 
@@ -258,7 +286,11 @@ plano escuchando y la música al nivel de la voz (~-21 dB); mide el tramo con vo
 
 - `mi_estudio.py`: reutiliza el servidor del Picker del plugin (catálogo, vídeos, guardado) y añade la página propia, `/api/filtro` y, con `--project`, la línea de tiempo (copias ligeras de los clips con keyframes densos para previsualizar sin pausas y forma de onda, ambas en `<proyecto>/work/mi-estudio/`, guardado de `edl.json` / `timeline.json` / `picks.json`; `/api/edicion`, `/p/<ruta del proyecto>` y `edicion/<id>_edit.json` para las herramientas de Edición). No modifica nada del plugin.
 - `index.html`: la página (pestañas Formatos, Estilos, Subtítulos, Efectos y, con proyecto, Edición).
-- `herramientas/*.js`, `edicion.py`: los módulos de la Edición (capas, audio...) y sus datos (ver "Pestaña Edición").
+- `herramientas/*.js`, `herramientas/CONTRATO.md`, `edicion.py`: los módulos de la Edición y sus datos (ver "Pestaña Edición"). `herramientas/esquema.js`: nombres y rangos de color, audio y curvas sacados de HyperFrames Studio 0.8.34 (Apache-2.0); si se cambia la versión fijada de HyperFrames, hay que revisarlo.
+- `ficha.py`: la ficha de una referencia (ver "A partir de una referencia").
+- `tomas.py`: la lista compacta de tomas y `corte.txt` -> `edl.json` (paso 1).
+- `preparar_clips.py`, `transcribir.py`: girar, transcribir y preparar en segundo plano (paso 0). Las librerías de NVIDIA para Whisper están en `%LOCALAPPDATA%/video-studio/cuda`, aparte del Python de video-studio; si faltan, se usa el procesador. Cómo instalarlas: README del plugin. Comprimir con la tarjeta (NVENC) no se usa: ffmpeg 9 pide el driver 610 o superior.
+- `aplicar.py`: pasa los JSON de la Edición al `index.html`. Guarda el HTML de `build_reel.py` en `work/mi-estudio/index.base.html` y regenera desde ahí; se puede correr las veces que haga falta.
 - `formatos/`: los formatos que trae el plugin (ver "Formatos"); los del usuario en `DATA/formatos/`. `DATA/eleccion-formato.json`: formato elegido fuera de un proyecto.
 - `timeline.js`, `timeline.css`: la vista de Edición entera (vista previa con capas, panel, línea de tiempo: recortar, partir en el cursor, vídeos superpuestos, capas y efectos en el tiempo) y el enchufe de los módulos (`Timeline.use`).
 - `overlay_edl.py`: monta un `edl.json` con vídeos superpuestos y re-sincroniza el audio (ver "Vídeos superpuestos").

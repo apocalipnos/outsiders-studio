@@ -11,8 +11,7 @@
     {
       "name": "mi-estudio",
       "source": "./plugins/mi-estudio",
-      "description": "Mi Estudio: formatos de vídeo, estilos filtrados y línea de tiempo tipo CapCut encima de video-studio (Creator Studio).",
-      "version": "1.0.0"
+      "description": "Mi Estudio: formatos de vídeo, estilos filtrados y línea de tiempo tipo CapCut encima de video-studio (Creator Studio)."
     }
   ]
 }
