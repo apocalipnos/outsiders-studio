@@ -41,6 +41,7 @@ from html.parser import HTMLParser
 
 import capas
 import edicion
+import hdr
 
 MARCA = '<!-- mi-estudio:aplicado -->'
 TOOLS = ('capas', 'tiempos', 'pistas', 'color', 'audiofx', 'estilo', 'claves', 'libres')
@@ -1059,4 +1060,6 @@ if __name__ == '__main__':
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    print(json.dumps(aplicar(sys.argv[1]), ensure_ascii=False, indent=1))
+    r = aplicar(sys.argv[1])
+    r['avisos'] += hdr.arreglar(sys.argv[1], log=lambda m: print(m, file=sys.stderr))   # se corre antes de cada render
+    print(json.dumps(r, ensure_ascii=False, indent=1))

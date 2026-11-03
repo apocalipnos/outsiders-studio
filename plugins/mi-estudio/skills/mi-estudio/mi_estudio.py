@@ -59,6 +59,7 @@ import skillenv  # noqa: E402
 import edicion  # noqa: E402
 import aplicar  # noqa: E402
 import ficha  # noqa: E402
+import hdr  # noqa: E402
 
 
 STYLES_DIR = os.path.join(os.path.dirname(PLATFORM), 'styles')   # los estilos guardados de video-studio (my_styles.py)
@@ -308,6 +309,7 @@ def project_info():
     clips = {c: {'url': '/src/' + c, 'dur': probe_duration(p)} for c, p in SOURCES.items()}
     ok, motivo = directo()
     return {'name': os.path.basename(PROJECT), 'fps': 30, 'edl': edl, 'clips': clips,
+            'segments': serve.read_json(os.path.join(PROJECT, 'segments.json'), []) or [],     # lo que hay de verdad en assets/aroll.mp4
             'effects': timeline.get('effects') or [], 'elementos': timeline.get('elementos') or [],
             'directo': ok, 'motivo': motivo}
 
@@ -425,7 +427,7 @@ TIPOS = {'.mp4': 'video', '.mov': 'video', '.webm': 'video', '.m4v': 'video', '.
 EDITABLES = ('.json', '.md', '.txt')
 VIDEOS = ('.mp4', '.mov', '.webm', '.m4v')
 EXAMPLES = os.path.join(os.path.dirname(PLATFORM), 'examples')    # donde get_example.py y study.py dejan las referencias
-RENDER = {'running': False, 'log': '', 'output': None, 'error': None, 'proc': None, 'started': 0}
+RENDER = {'running': False, 'log': '', 'output': None, 'error': None, 'proc': None, 'started': 0, 'avisos': [], 'parar': False}
 for _ext, _type in (('.webp', 'image/webp'), ('.svg', 'image/svg+xml'), ('.gif', 'image/gif'), ('.woff2', 'font/woff2'), ('.woff', 'font/woff'), ('.aac', 'audio/aac'), ('.ogg', 'audio/ogg'), ('.cube', 'text/plain')):
     serve.TYPES.setdefault(_ext, _type)
 
@@ -710,9 +712,13 @@ def run_lint():
         return {'ok': False, 'findings': [], 'error': 'Este proyecto aún no está montado.'}
     r = subprocess.run(hf_cmd('lint', '--json'), capture_output=True, text=True, encoding='utf-8', errors='replace')
     try:
-        return json.loads(r.stdout[r.stdout.index('{'):])
+        out = json.loads(r.stdout[r.stdout.index('{'):])
     except ValueError:
-        return {'ok': False, 'findings': [], 'error': (r.stderr or r.stdout)[-400:]}
+        out = {'ok': False, 'findings': [], 'error': (r.stderr or r.stdout)[-400:]}
+    out['findings'] = (out.get('findings') or []) + [
+        {'severity': 'warning', 'file': rel, 'message': 'Este vídeo está en HDR.', 'fixHint': 'Al exportar se pasa solo a color normal.' if puede else hdr.aviso(rel)}
+        for rel, _trc, puede in hdr.en_hdr(PROJECT)]
+    return out
 
 
 def siguiente_version():
@@ -738,14 +744,21 @@ def start_render(opts, edits, server=None):
     quality = opts.get('quality') if opts.get('quality') in ('draft', 'standard', 'high') else 'high'
     name = re.sub(r'[^\w.-]+', '-', str(opts.get('name') or '')).strip('-') or siguiente_version()
     out = 'renders/%s.%s' % (name, fmt)
-    args = ['render', '-o', out, '--quality', quality, '--format', fmt]
+    # --sdr siempre: en su modo HDR HyperFrames saca el vídeo sin capas de texto y sin ningún error (ver hdr.py)
+    args = ['render', '-o', out, '--quality', quality, '--format', fmt, '--sdr']
     if opts.get('fps') in (24, 25, 30, 60):
         args += ['--fps', opts['fps']]
 
     def work():
-        RENDER.update(running=True, log='', output=None, error=None, started=time.time())
+        RENDER.update(running=True, log='', output=None, error=None, started=time.time(), avisos=[], parar=False)
         try:
             aplicar.aplicar(PROJECT)
+            RENDER['avisos'] = hdr.arreglar(PROJECT, lambda c: RENDER.update(proc=c), lambda m: RENDER.update(log=RENDER['log'] + m + '\n'))
+            if RENDER['parar']:
+                RENDER.update(running=False, proc=None, avisos=[])
+                return
+            for a in RENDER['avisos']:
+                serve.say('STATUS render AVISO %s' % a)
             p = subprocess.Popen(hf_cmd(*args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
             RENDER['proc'] = p
             for line in p.stdout:
@@ -771,7 +784,8 @@ def render_status():
     log = RENDER['log']
     m = re.findall(r'(\d{1,3})\s?%', log)
     return {'running': RENDER['running'], 'pct': int(m[-1]) if m else None, 'output': RENDER['output'], 'error': RENDER['error'], 'log': log[-800:], 'cierra': UNTIL_SAVED,
-            'elapsed': round(time.time() - RENDER['started']) if RENDER['started'] else 0}
+            'elapsed': round(time.time() - RENDER['started']) if RENDER['started'] else 0,
+            'avisos': RENDER['avisos'], 'hdr': [] if RENDER['running'] else [{'path': r, 'puede': c, 'aviso': hdr.aviso(r)} for r, _t, c in hdr.en_hdr(PROJECT)]}
 
 
 def list_blocks():
@@ -1019,6 +1033,7 @@ class Handler(serve.Handler):
             return self.fail(400, err) if err else self.send_json(200, {'ok': True})
         if path == '/api/render/cancel':
             p = RENDER.get('proc')
+            RENDER['parar'] = True
             if p and os.name == 'nt':       # hf.py lanza node, y node lanza Chrome: hay que parar el árbol entero
                 subprocess.run(['taskkill', '/T', '/F', '/PID', str(p.pid)], capture_output=True)
             elif p:

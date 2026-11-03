@@ -7,6 +7,7 @@
 - Girar: los clips apaisados de la cámara van a work/upright/cN.mp4 en vertical, sin pista de timecode. Hay dos tipos: con la orientación en sus metadatos
   (móvil en vertical: se respeta) y sin ella (cámara con la persona de lado: 90 grados a la izquierda). Lee el 4K con la tarjeta, escala antes de girar y
   comprime igual que siempre (crf 16, preset fast). Si la tarjeta no puede, lo hace el procesador. --no-girar: un vídeo apaisado que debe quedarse así.
+  Un clip en HLG va también a work/upright/cN.mp4, en vídeo normal aunque no haya que girarlo (ver hdr.py).
 - Transcribir: work/cN.wav, work/islands_cN.txt con transcribir.py (empieza a la vez que el giro, no después) y work/tomas.txt con tomas.py.
 - Copias ligeras, miniaturas y onda de Mi Estudio, para que se abra sin esperar.
 Última línea: STATUS clips READY <proyecto> <clips> giro=<s> transcribir=<s> copias=<s> total=<s>, o STATUS clips ERROR <motivo>.
@@ -22,6 +23,7 @@ sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import transcribir  # noqa: E402
+import hdr  # noqa: E402
 
 PLAT = json.load(open(os.path.join(transcribir.ESTADO, '.platform.json'), encoding='utf-8'))
 FF, FP = PLAT['ffmpeg'], PLAT.get('ffprobe') or 'ffprobe'
@@ -51,16 +53,18 @@ def filtro(w, h, rot):
     return '%s,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30' % giro
 
 
-def girar(src, dest, vf):
+def girar(src, dest, vf, hlg=False):
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     tmp = dest[:-4] + '.part.mp4'
-    salida = ['-map', '0:v:0', '-map', '0:a:0?', '-vf', vf, '-c:v', 'libx264', '-crf', '16', '-preset', 'fast',
-              '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '256k', '-write_tmcd', '0', '-movflags', '+faststart', tmp]
+    color = [hdr.SDR] if hlg else []    # después de escalar: pasar el 4K entero por este filtro es muy lento
+    salida = ['-map', '0:v:0', '-map', '0:a:0?', '-vf', ','.join(([vf] if vf else []) + color), '-c:v', 'libx264', '-crf', '16', '-preset', 'fast',
+              '-pix_fmt', 'yuv420p'] + (hdr.COLOR if hlg else []) + ['-c:a', 'aac', '-b:a', '256k', '-write_tmcd', '0', '-movflags', '+faststart', tmp]
     # el giro va en el filtro: sin esto ffmpeg lo aplicaría también, y lo dejaría anotado en el archivo para que se volviera a aplicar al leerlo
-    r = subprocess.run([FF, '-v', 'error', '-y', '-display_rotation', '0', '-noautorotate', '-hwaccel', 'cuda', '-i', src] + salida, capture_output=True, text=True, errors='replace')
+    giro = ['-display_rotation', '0', '-noautorotate'] if vf else []
+    r = subprocess.run([FF, '-v', 'error', '-y'] + giro + ['-hwaccel', 'cuda', '-i', src] + salida, capture_output=True, text=True, errors='replace')
     if r.returncode != 0:          # sin tarjeta o sin su decodificador: igual con el procesador
         print('girar: con el procesador (%s)' % r.stderr.strip()[-120:], flush=True)
-        subprocess.run([FF, '-v', 'error', '-y', '-display_rotation', '0', '-noautorotate', '-i', src] + salida, check=True)
+        subprocess.run([FF, '-v', 'error', '-y'] + giro + ['-i', src] + salida, check=True)
     os.replace(tmp, dest)
 
 
@@ -82,23 +86,24 @@ def main():
     for i, f in enumerate(clips, 1):
         cid = 'c%d' % i
         vf = None if no_girar else filtro(*medida(f))
-        dest = os.path.join(proj, 'work', 'upright', cid + '.mp4') if vf else os.path.abspath(f)
+        hlg = hdr.es_hlg(f)
+        dest = os.path.join(proj, 'work', 'upright', cid + '.mp4') if vf or hlg else os.path.abspath(f)
         fuentes[cid] = dest.replace('\\', '/')
-        plan.append((cid, f, dest, vf))
+        plan.append((cid, f, dest, vf, hlg))
     with open(os.path.join(proj, 'sources.json'), 'w', encoding='utf-8') as out:
         json.dump(fuentes, out, ensure_ascii=False, indent=1)
 
     def imagen():
         t = time.time()
-        for cid, f, dest, vf in plan:
-            if vf:
-                girar(f, dest, vf)
-                print(cid, 'girado', vf, flush=True)
+        for cid, f, dest, vf, hlg in plan:
+            if vf or hlg:
+                girar(f, dest, vf, hlg)
+                print(cid, 'girado', vf, 'y de HLG a vídeo normal' if hlg else '', flush=True)
         tiempos['giro'] = time.time() - t
         t = time.time()
         import mi_estudio as m             # lo mismo que hará al abrirse, para que ya esté hecho
         m.PROJECT = proj
-        for cid, _f, dest, _r in plan:
+        for cid, _f, dest, _r, _h in plan:
             m.SOURCES[cid] = os.path.normpath(dest)
             m.PREVIEWS[cid] = threading.Event()
             m.make_preview(cid); m.strip(cid); m.peaks(cid)
@@ -106,7 +111,7 @@ def main():
 
     def voz():
         t = time.time()
-        for cid, f, _d, _r in plan:
+        for cid, f, _d, _r, _h in plan:
             subprocess.run([FF, '-loglevel', 'error', '-y', '-i', f, '-vn', '-ac', '1', '-ar', '16000', os.path.join(proj, 'work', cid + '.wav')], check=True)
         transcribir.islas(proj, [p[0] for p in plan])
         import tomas                       # la lista de la que Claude elige las tomas

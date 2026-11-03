@@ -43,6 +43,14 @@ o escribe `/reload-plugins`. Las actualizaciones no llegan solas: para que llegu
 Tus preferencias (qué se ve en Mi Estudio, el último formato elegido y los formatos que crees tú) se guardan en
 `%LOCALAPPDATA%\mi-estudio\`, fuera del plugin, así que no se pierden al actualizar.
 
+## Novedades de la 2.1.0
+
+- Grabaciones en HDR (HLG, lo que graban muchos móviles): se pasan solas a color normal al preparar los clips, al montar
+  y antes de exportar. Antes el vídeo salía sin ningún texto y con el color lavado, sin avisar. Exportar vídeo ya no
+  puede sacar un vídeo sin textos, y avisa si algún medio sigue en HDR.
+- Los recortes se ven y se oyen al momento en Ver resultado, sin pulsar Procesar: recortar, quitar, partir, duplicar o
+  mover clips. Las capas siguen a su trozo de vídeo. Para guardar los cortes sigue haciendo falta Procesar vídeo.
+
 ## Novedades de la 2.0.0
 
 - Una sola pantalla como CapCut: vista previa grande a la derecha, línea de tiempo con tijeras, imán y marcas, y

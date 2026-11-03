@@ -44,6 +44,14 @@
       t += d; x += w + GAP;
     });
     T.L = L; T.total = t; T.width = x;
+    if (T.fx) T.fx.forEach(fxEnd);
+  }
+  // Una capa sin tocar acaba en su momento del clip, no a los N segundos: si se recorta dentro de ella, se acorta igual que el vídeo.
+  function fxEnd(f) {
+    var it = f.endSeg && !f.edited && item(f.endSeg), a = it ? fxStart(f) : null;
+    if (a == null) return;
+    var b = it.t0 + clamp((f.endSrc - it.s.in) / sp(it.s), 0, it.dur);
+    if (b >= a - .001) f.dur = Math.max(MIN_FX, b - a);
   }
   function item(id) { return T.L.filter(function (it) { return it.s._id === id; })[0]; }
   function active() { return T.L.filter(function (it) { return !it.s.off; }); }
@@ -460,7 +468,15 @@
       if (T.loop) { seek(T.inP || 0); vid().play().catch(function () {}); on('onPlay', T.t); requestAnimationFrame(tick); return; }
       stop(); return;
     }
-    if (ct >= it.s.out - .01 || v.ended) {
+    if (T.reloj) {                          // Ver resultado: lleva el tiempo su vídeo, y esta pareja descansa
+      var rt = T.reloj();
+      if (!v.paused) v.pause();
+      if (rt == null) {
+        if (T.loop) { seek(T.inP || 0); vid().play().catch(function () {}); on('onPlay', T.t); requestAnimationFrame(tick); return; }
+        T.endAt = null; stop(); return;
+      }
+      T.t = rt; T.cur = itemAt(rt);
+    } else if (ct >= it.s.out - .01 || v.ended) {
       var a = active(), next = a[a.indexOf(it) + 1];
       if (!next) {
         if (T.loop) { seek(T.inP || 0); vid().play().catch(function () {}); on('onPlay', T.t); requestAnimationFrame(tick); return; }
@@ -576,7 +592,7 @@
     b._id = 's' + (T.n++); b.id = newSegId(s.id); b.in = b._in0 = src; b._out0 = s.out;
     s.out = s._out0 = src;
     T.segs.splice(T.segs.indexOf(s) + 1, 0, b);
-    T.fx.forEach(function (f) { if (f.seg === s._id && f.src >= src) f.seg = b._id; });
+    T.fx.forEach(function (f) { if (f.seg === s._id && f.src >= src) f.seg = b._id; if (f.endSeg === s._id && f.endSrc > src) f.endSeg = b._id; });
     T.sel = { type: 'seg', id: b._id };
     changed();
     seek(T.t);
@@ -953,8 +969,8 @@
         if (e0.off) T.baseOff[e0.id] = true;    // no está en el HTML: recuperarla pide volver a montar
         // pegada al momento de su toma si lo trae (así no se descoloca si edl.json cambió fuera de aquí)
         var s = e.anchor && T.segs.filter(function (x) { return x.id === e.anchor.seg; })[0];
-        var a = s ? { seg: s._id, src: e.anchor.src } : anchor(clamp(e.from, 0, T.total));
-        T.fx.push({ kind: 'el', id: e.id, label: e.label || e.id, seg: a.seg, src: a.src, dur: Math.max(MIN_FX, e.to - e.from),
+        var a = s ? { seg: s._id, src: e.anchor.src } : anchor(clamp(e.from, 0, T.total)), z = anchor(clamp(e.to, 0, T.total));
+        T.fx.push({ kind: 'el', id: e.id, label: e.label || e.id, seg: a.seg, src: a.src, dur: Math.max(MIN_FX, e.to - e.from), endSeg: z.seg, endSrc: z.src,
                     edited: !!e.edited, off: !!e.off, group: (pist.groups || {})[e.id] || null });
       });
 

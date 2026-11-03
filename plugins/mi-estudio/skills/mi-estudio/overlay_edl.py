@@ -10,6 +10,8 @@ toma. "under" dice qué plano queda debajo mientras suena: {"clip": "c3", "in": 
 Un fragmento con "speed": 1.2 (u otro) va acelerado en el montaje sin cambiar el tono de la voz (rubberband); los
 vídeos superpuestos van siempre a su velocidad. segments.json guarda el "speed" de cada fragmento.
 
+Lo que venga en HLG (un recorte a mano del original, un proyecto de antes de hdr.py...) sale en vídeo normal, corte a corte.
+
 1. Monta con video-studio (assemble.py) un edl "base" donde cada fragmento superpuesto se cambia por su plano
    "under" con la misma duración. edl.json vuelve a quedar como estaba (el de Mi Estudio).
 2. Re-sincroniza el audio corte a corte (cada corte redondea la imagen a fotogramas enteros y el audio no: sin esto
@@ -24,6 +26,8 @@ import os
 import shutil
 import subprocess
 import sys
+
+import hdr
 
 proj = sys.argv[1]
 plat = json.load(open(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'video-studio', '.platform.json'), encoding='utf-8'))
@@ -86,8 +90,9 @@ for k, (s, b, g) in enumerate(zip(studio, base, segs)):
     sp = 1.0 if s.get('overlay') else float(s.get('speed') or 1)
     n = max(1, round(g['frames'] / sp))
     src, vout, aout = os.path.join(work, f'seg_{k}.mp4'), os.path.join(work, f'sync_{k}.mp4'), os.path.join(work, f'sync_{k}.wav')
-    subprocess.run([FF, '-loglevel', 'error', '-y', '-i', src, '-an', '-vf', (f'setpts=PTS/{sp},' if sp != 1 else '') + 'fps=30,tpad=stop_mode=clone:stop_duration=0.2',   # a clone at the end if rounding falls short
-                    '-frames:v', str(n), '-c:v', 'libx264', '-crf', '14', '-preset', 'medium', '-pix_fmt', 'yuv420p', vout], check=True)
+    hlg = hdr.es_hlg(src)
+    subprocess.run([FF, '-loglevel', 'error', '-y', '-i', src, '-an', '-vf', (f'setpts=PTS/{sp},' if sp != 1 else '') + 'fps=30,tpad=stop_mode=clone:stop_duration=0.2' + (',' + hdr.SDR if hlg else ''),   # a clone at the end if rounding falls short
+                    '-frames:v', str(n), '-c:v', 'libx264', '-crf', '14', '-preset', 'medium', '-pix_fmt', 'yuv420p'] + (hdr.COLOR if hlg else []) + [vout], check=True)
     af = [x for x in (pan(b['clip']), f'rubberband=tempo={sp}' if sp != 1 else None, f'apad,atrim=0:{n / 30:.6f}') if x]
     subprocess.run([FF, '-loglevel', 'error', '-y', '-i', src, '-vn', '-af', ','.join(af), '-c:a', 'pcm_s16le', '-ar', '48000',
                     '-ac', '2', aout], check=True)
@@ -117,8 +122,9 @@ for s, g in zip(studio, segs):
     d = g['frames'] / 30
     v, a = os.path.join(ovdir, f"{s['id']}.mp4"), os.path.join(ovdir, f"{s['id']}.wav")
     src = sources[s['clip']]
-    subprocess.run([FF, '-loglevel', 'error', '-y', '-ss', str(s['in']), '-i', src, '-t', f'{d:.3f}', '-an', '-vf', 'fps=30',
-                    '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', v], check=True)
+    hlg = hdr.es_hlg(src)
+    subprocess.run([FF, '-loglevel', 'error', '-y', '-ss', str(s['in']), '-i', src, '-t', f'{d:.3f}', '-an', '-vf', 'fps=30' + (',' + hdr.SDR if hlg else ''),
+                    '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p'] + (hdr.COLOR if hlg else []) + [v], check=True)
     subprocess.run([FF, '-loglevel', 'error', '-y', '-ss', str(s['in']), '-i', src, '-t', f'{d:.3f}', '-vn',
                     '-af', f'afade=t=in:d=0.03,afade=t=out:st={max(0, d - .08):.3f}:d=0.08', '-ar', '48000', '-ac', '2', a], check=True)
     overlays.append({'id': s['id'], 'clip': s['clip'], 'in': s['in'], 'out': s['out'], 'at': round(g['frame'] / 30, 3),
