@@ -28,7 +28,7 @@
   }
   function cmd(r) {                          // la orden equivalente, con las opciones con que se lanzó si las sabemos
     var o = R.opts[r.name] || {}, ext = (/\.(\w+)$/.exec(r.name) || [0, 'mp4'])[1];
-    return 'npx hyperframes render -o "renders/' + r.name + '" --format ' + ext + (o.quality ? ' --quality ' + o.quality : '') + (o.fps ? ' --fps ' + o.fps : '');
+    return 'npx hyperframes render -o "renders/' + r.name + '" --sdr --format ' + ext + (o.quality ? ' --quality ' + o.quality : '') + (o.fps ? ' --fps ' + o.fps : '');
   }
   function clean(s) {                        // un fragmento tal como saldría en edl.json (sin lo interno del núcleo)
     var c = {};
@@ -38,6 +38,14 @@
   function cutsChanged() {                   // sin Timeline.data(): rehace T.L y en plena reproducción saltaría al principio
     var T = A.state(), a = T.segs.filter(function (s) { return !s.off; }).map(clean), b = T.project.edl.map(clean);
     return JSON.stringify(a) !== JSON.stringify(b);
+  }
+  function hdr() {                           // lo que sigue en HDR: al exportar se pasa solo si se puede; si no, el color sale lavado
+    var s = R.st || {}, list = (s.avisos || []).map(function (a) { return '<div class="rn-w">' + A.esc(a) + '</div>'; });
+    (s.hdr || []).forEach(function (m) {
+      if (m.puede) list.push('<div class="rn-w soft"><b>' + A.esc(m.path) + '</b> está en HDR. Al exportar se pasa solo a color normal; tarda un poco más.</div>');
+      else if (!s.avisos || !s.avisos.length) list.push('<div class="rn-w">' + A.esc(m.aviso) + '</div>');
+    });
+    return list.join('');
   }
   function warn() {
     var other = (Timeline.dirty ? Timeline.dirty() : []).filter(function (k) { return k !== 'pistas'; });
@@ -71,7 +79,7 @@
     var el = R.el;
     if (!el || A.state().rtab !== 'renders') return;
     var run = R.st && R.st.running, proj = A.state().project.name;
-    el.innerHTML = warn() +
+    el.innerHTML = hdr() + warn() +
       A.section('rn-exp', 'Nuevo vídeo',
         '<div class="tl-row"><label>Formato</label>' + select('fmt', [['mp4', 'MP4'], ['webm', 'WebM'], ['mov', 'MOV']], R.fmt) + '</div>' +
         '<div class="tl-row"><label>Fotogramas</label>' + select('fps', [[24, '24 fps'], [30, '30 fps'], [60, '60 fps']], R.fps) + '</div>' +
@@ -102,7 +110,7 @@
       if (was) {
         if (s.output) {
           remember(s.output);
-          A.toast(s.cierra ? 'Vídeo exportado. Claude lo comprueba y te lo entrega; ya puedes cerrar esta pestaña.' : 'Vídeo exportado: ' + s.output);
+          A.toast(s.avisos && s.avisos.length ? 'Vídeo exportado, pero ' + s.avisos[0] : s.cierra ? 'Vídeo exportado. Claude lo comprueba y te lo entrega; ya puedes cerrar esta pestaña.' : 'Vídeo exportado: ' + s.output, !!(s.avisos && s.avisos.length));
           var sb = document.getElementById('saveBtn');
           if (s.cierra && sb) { sb.textContent = 'Enviado ✓'; sb.disabled = true; }
         }
