@@ -367,8 +367,14 @@
   function apply(id) {
     var T = A.state(), css = cssOf(id);
     U.css[id] = css;
-    if (id === 'video') { T.deck.forEach(function (v) { setFilter(v, css); }); layers(U.targets.video); }
+    if (id === 'video' || id.indexOf('seg:') === 0) deck(T.t);
     else paintLayers(T.t);
+  }
+  function deck(t) {                         // el vídeo de la vista previa: el color de su clip si tiene uno propio, si no el de toda la pista
+    var T = A.state(), c = A.clipAt(t), k = c && 'seg:' + c.s.id;
+    if (!(k && U.targets[k])) k = 'video';
+    T.deck.forEach(function (v) { setFilter(v, U.css[k] || ''); });
+    layers(U.targets[k]);
   }
   function applyAll() { Object.keys(U.css).concat(Object.keys(U.targets)).forEach(function (k, i, a) { if (a.indexOf(k) === i) apply(k); }); if (!U.targets.video) apply('video'); }
   function ensureCube(g) {
@@ -409,7 +415,7 @@
   function targetOf(sel) {
     if (!sel) return null;
     var T = A.state();
-    if (sel.type === 'seg') return 'video';
+    if (sel.type === 'seg') { var it = T.L.filter(function (x) { return x.s._id === sel.id; })[0]; return it && !it.s.off ? 'seg:' + it.s.id : null; }   // solo ese clip
     if (sel.type === 'fx') return layerAt(sel);
     if (sel.type === 'grp') {                // tocada en la vista previa: la capa de ese grupo que se ve ahora
       var hit = null;
@@ -424,6 +430,7 @@
   }
   function allTargets() {
     var T = A.state(), out = [['video', 'Vídeo']];
+    T.L.forEach(function (it) { var k = 'seg:' + it.s.id; if (!it.s.off && (U.targets[k] || U.cur === k)) out.push([k, 'Clip ' + A.clipNum(it.s.id)]); });
     T.fx.forEach(function (f, i) { var t = f.kind === 'el' && layerAt({ id: i }); if (t) out.push([t, f.label || f.id]); });
     return out;
   }
@@ -431,6 +438,7 @@
   function mediaOf(id) {                     // el elemento img/video del objetivo en la vista previa
     var T = A.state();
     if (id === 'video') return T.deck[T.vi];
+    if (id.indexOf('seg:') === 0) { var c = A.clipAt(T.t); return c && 'seg:' + c.s.id === id ? T.deck[T.vi] : null; }
     var fid = id.slice(id.indexOf(':') + 1), g = U.groupOf[fid];
     var root = id.indexOf('el:') === 0 ? g && T.el.ov.querySelector('.cp-g[data-g="' + g + '"] .cp-in') : T.el.ov.querySelector('.lb-l[data-lb="' + fid + '"] .lb-in');
     return root ? (/^(IMG|VIDEO)$/.test(root.tagName) ? root : root.querySelector('img,video')) : null;
@@ -438,14 +446,18 @@
   function paintLayers(t) {
     var T = A.state();
     Object.keys(U.css).forEach(function (id) {
-      if (id === 'video') return;
+      if (id === 'video' || id.indexOf('seg:') === 0) return;
       var el = mediaOf(id), f = T.fx.filter(function (x) { return x.kind === 'el' && x.id === id.slice(id.indexOf(':') + 1); })[0], r = f && A.fxRange(f);
       if (el) setFilter(el, r && t >= r[0] && t < r[1] ? U.css[id] : (el.dataset.coF ? '' : el.style.filter));
     });
   }
 
   // ---------- valores: "adjust.exposure", "wheels.shadows.level", "sec.0.key.hue.center"... ----------
-  function G(make) { var g = U.targets[U.cur]; if (!g && make) g = U.targets[U.cur] = blank(); return g || blank(); }
+  function G(make) {                         // un clip empieza con el color que ya tenga toda la pista
+    var g = U.targets[U.cur];
+    if (!g && make) g = U.targets[U.cur] = U.cur.indexOf('seg:') === 0 && U.targets.video ? JSON.parse(JSON.stringify(U.targets.video)) : blank();
+    return g || blank();
+  }
   function secAt(g, i) { return g.secondaries[+i]; }
   function spec(k) {
     var p = k.split('.'), s = p[0];
@@ -594,7 +606,7 @@
   }
   function finBody() {
     return '<div class="tl-sub" style="margin-top:0;padding-top:0;border:0"><h4>Viñeta</h4>' + sl('details.vignette', 'Cantidad') + sl('details.vignetteMidpoint', 'Punto medio') + sl('details.vignetteRoundness', 'Redondez') + sl('details.vignetteFeather', 'Difuminado') + '</div>' +
-      '<div class="tl-sub"><h4>Grano</h4>' + sl('details.grain', 'Cantidad') + sl('details.grainSize', 'Tamaño') + sl('details.grainRoughness', 'Rugosidad') + '</div>' + (U.cur !== 'video' ? '<div class="co-note">En una capa, viñeta y grano se ven en Ver resultado.</div>' : '');
+      '<div class="tl-sub"><h4>Grano</h4>' + sl('details.grain', 'Cantidad') + sl('details.grainSize', 'Tamaño') + sl('details.grainRoughness', 'Rugosidad') + '</div>' + (!/^(video|seg:)/.test(U.cur) ? '<div class="co-note">En una capa, viñeta y grano se ven en Ver resultado.</div>' : '');
   }
   function fxBody(f, fam) {
     return Object.keys(EFX).filter(function (k) { return E.effectMeta[k].family === fam; }).map(function (k) {
@@ -607,7 +619,7 @@
           if (s.t) h += '<div class="tl-row"><label>' + s.l + '</label><input type="checkbox" data-p="color" data-k="effects.' + s.k + '"' + (v > .5 ? ' checked' : '') + '></div>';
           else h += '<div class="tl-row"><label>' + s.l + '</label><select data-p="color" data-k="effects.' + s.k + '">' + s.o.map(function (l, n) { return '<option value="' + n + '"' + (Math.round(v) === n ? ' selected' : '') + '>' + l + '</option>'; }).join('') + '</select></div>';
         });
-        if (!x.live || (U.cur !== 'video' && k === 'scanlines')) h += '<div class="co-note">Se ve en Ver resultado.</div>';
+        if (!x.live || (!/^(video|seg:)/.test(U.cur) && k === 'scanlines')) h += '<div class="co-note">Se ve en Ver resultado.</div>';
       }
       return h + '</div>';
     }).join('');
@@ -629,7 +641,7 @@
   function panel(id) {
     U.cur = id;
     var g = U.targets[id] || blank(), f = eff(g), opts = allTargets().filter(function (x) { return x[0] !== id; }), nFx = function (fam) { var n = Object.keys(EFX).filter(function (k) { return E.effectMeta[k].family === fam && f.effects[k] > 1e-4; }).length; return n ? ' · ' + n : ''; };
-    var h = '<div class="tl-sub"><h4>Color · ' + A.esc(name(id)) + (id === 'video' ? ' (toda la pista)' : '') + '</h4><div class="tl-acts"><button class="co-hold" title="Mantén pulsado para comparar">Mantén para ver el original</button><button data-p="color" data-b="reset">Restablecer</button></div>' +
+    var h = '<div class="tl-sub"><h4>Color · ' + A.esc(name(id)) + (id === 'video' ? ' (toda la pista)' : id.indexOf('seg:') === 0 ? ' (solo este clip)' : '') + '</h4><div class="tl-acts"><button class="co-hold" title="Mantén pulsado para comparar">Mantén para ver el original</button><button data-p="color" data-b="reset">Restablecer</button></div>' +
       (opts.length ? '<div class="tl-row"><label>Copiar a</label><select class="co-copyto">' + opts.map(function (o) { return '<option value="' + A.esc(o[0]) + '">' + A.esc(o[1]) + '</option>'; }).join('') + '</select><button data-p="color" data-b="copy">Copiar</button></div>' : '') + '</div>';
     h += A.section('co-scopes', 'Medidores', scopeBody(), false);
     h += A.section('co-pre', 'Filtros', presets(g));
@@ -1060,6 +1072,7 @@
     },
     paint: function (t) {
       paintLayers(t);
+      if (t === A.state().t) deck(t);
       var T = A.state();
       if (T.playing && U.lay && U.targets.video && !U.hold) { var gr = U.lay.children[1]; if (gr.style.display !== 'none') gr.style.backgroundPosition = Math.floor(Math.random() * 128) * 3 + 'px ' + Math.floor(Math.random() * 128) * 3 + 'px'; }
     },

@@ -123,11 +123,12 @@
     var T = A.state(), s = T.sel;
     if (!s) return null;
     if (s.type === 'grp') return 'grp:' + s.id;
-    if (s.type === 'seg') return 'video';
-    if (s.type === 'fx') { var f = T.fx[s.id]; if (f && f.kind === 'el') return (f.libre ? 'lib:' : 'el:') + f.id; }
+    if (s.type === 'seg') { var it = itemOf(s.id); return it && !it.s.off ? 'seg:' + it.s.id : null; }   // solo ese clip
+    if (s.type === 'fx') { var f = T.fx[s.id]; if (f && f.kind === 'el' && !f.sonido) return (f.libre ? 'lib:' : 'el:') + f.id; }
     return null;
   }
   function tid(tg) { return tg.slice(tg.indexOf(':') + 1); }
+  function clipOf(tg) { var L = A.state().L, id = tid(tg); for (var i = 0; i < L.length; i++) if (L[i].s.id === id && !L[i].s.off) return L[i]; return null; }
   function fxIdx(tg) {
     var fx = A.state().fx, lib = tg.indexOf('lib:') === 0, id = tid(tg);
     for (var i = 0; i < fx.length; i++) if (fx[i].kind === 'el' && fx[i].id === id && !!fx[i].libre === lib) return i;
@@ -138,6 +139,7 @@
   function nameOf(tg) {
     var T = A.state();
     if (tg === 'video') return 'Vídeo';
+    if (tg.indexOf('seg:') === 0) return 'Clip ' + (A.clipNum(tid(tg)) || tid(tg));
     if (tg.indexOf('grp:') === 0) { var d = T.el.ov.querySelector('.cp-g[data-g="' + cssq(tid(tg)) + '"] .cp-tag'); return d ? d.textContent : tid(tg); }
     var f = T.fx[fxIdx(tg)];
     return f ? f.label : tid(tg);
@@ -148,7 +150,8 @@
     if (tg === 'video') {
       var it = T.L.filter(function (x) { return !x.s.off && T.t >= x.t0 && T.t < x.t0 + x.dur; })[0] || T.L.filter(function (x) { return !x.s.off; })[0];
       if (it) A.select({ type: 'seg', id: it.s._id });
-    } else if (tg.indexOf('grp:') === 0) A.select({ type: 'grp', id: tid(tg) });
+    } else if (tg.indexOf('seg:') === 0) { var c = clipOf(tg); if (c) A.select({ type: 'seg', id: c.s._id }); }
+    else if (tg.indexOf('grp:') === 0) A.select({ type: 'grp', id: tid(tg) });
     else { var i = fxIdx(tg); if (i >= 0) A.select({ type: 'fx', id: i }); }
     return true;
   }
@@ -290,6 +293,10 @@
   function locate(tg, t) {
     var T = A.state(), ov = T.el.ov, d;
     if (tg === 'video') return { key: 'video', outer: T.el.rf, inner: null };
+    if (tg.indexOf('seg:') === 0) {          // un clip: su imagen gira y se mueve dentro del marco, y solo mientras se ve
+      var c = A.clipAt(t);
+      return c && c.s.id === tid(tg) ? { key: 'img', outer: T.el.img, inner: null } : null;
+    }
     if (tg.indexOf('lib:') === 0) {
       d = ov.querySelector('.lb-l[data-lb="' + cssq(tid(tg)) + '"]');
       return d && { key: 'lib|' + tid(tg), outer: d, inner: d.querySelector('.lb-in') };
@@ -496,7 +503,7 @@
     var last = {};
     inner.querySelectorAll('.kf-lane').forEach(function (row) {
       var tg = row.dataset.kf, sel = null;
-      if (tg === 'video') sel = '.tl-lab.tl-v';
+      if (tg === 'video' || tg.indexOf('seg:') === 0) sel = '.tl-lab.tl-v';
       else if (tg.indexOf('lib:') === 0) sel = '.tl-lab[data-lane="libres"]';
       else { var g = tg.indexOf('grp:') === 0 ? tid(tg) : groupOf(tid(tg)); if (g) sel = '.tl-lab[data-lane="' + cssq(g) + '"]'; }
       var lab = sel && inner.querySelector(sel), host = last[sel] || (lab && lab.closest('.tl-lane'));
@@ -984,7 +991,7 @@
       if (k === 'h' && K.sel && K.sel.tg === tg) { e.preventDefault(); return toggleHold(); }
       if ((e.key === 'Delete' || e.key === 'Backspace') && K.sel && K.sel.tg === tg) { e.preventDefault(); return delSel(); }
       // K es "parar" si no hay capa elegida (en un fragmento de vídeo, solo si ya tiene claves)
-      if (k === 'k' && tg && (tg !== 'video' || K.tracks.video)) { e.preventDefault(); addKeys(tg); return true; }
+      if (k === 'k' && tg && (!/^(video|seg:)/.test(tg) || K.tracks[tg])) { e.preventDefault(); addKeys(tg); return true; }
       return false;
     },
     shortcuts: function () { return [['Animación (con una capa elegida)', [['K', 'Añadir punto en el cursor'], ['Supr', 'Quitar el punto elegido'], ['H', 'Sin transición / suave'], ['U', 'Expandir o plegar propiedades'], ['R', 'Grabar gesto'], ['Alt+← / →', 'Punto anterior o siguiente'], ['Alt+clic en un rombo', 'Quitarlo']]]]; },

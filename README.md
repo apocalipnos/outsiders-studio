@@ -43,6 +43,16 @@ o escribe `/reload-plugins`. Las actualizaciones no llegan solas: para que llegu
 Tus preferencias (qué se ve en Mi Estudio, el último formato elegido y los formatos que crees tú) se guardan en
 `%LOCALAPPDATA%\mi-estudio\`, fuera del plugin, así que no se pierden al actualizar.
 
+## Novedades de la 2.2.0
+
+- Subtítulos en cualquier vídeo: se mueven arrastrándolos y se agrandan desde una esquina en la vista previa o con los
+  botones del panel, aunque el plan del vídeo no los dé como capa.
+- Cada imagen o capa se mueve y cambia de tamaño por su cuenta, como en CapCut. "Igual en todas" las iguala.
+- Pista Sonidos: cada efecto de sonido es un bloque que se mueve, se estira, se quita y lleva su volumen, y suena en la
+  vista previa.
+- Con un clip elegido, el color, la animación (girar, acercar, mover) y el estilo valen solo para ese clip, y al girar
+  gira la imagen dentro del marco, con esquinas negras.
+
 ## Novedades de la 2.1.0
 
 - Grabaciones en HDR (HLG, lo que graban muchos móviles): se pasan solas a color normal al preparar los clips, al montar

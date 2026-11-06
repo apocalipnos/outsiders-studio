@@ -330,7 +330,41 @@ def edicion_inputs():
         elif f.endswith('_edit.json') and serve.KEY_RE.match(f[:-10]) and f[:-10] not in out:
             # los módulos que siempre están no necesitan <id>.json, solo lo que el usuario dejó
             out[f[:-10]] = {'input': None, 'saved': serve.read_json(os.path.join(d, f), None)}
+    capas = edicion.capas_entrada(PROJECT)          # con los subtítulos de index.html si el plan no los da como capa
+    if capas:
+        out['capas'] = {'input': capas, 'saved': serve.read_json(os.path.join(d, 'capas_edit.json'), None)}
+    sonidos = sonidos_entrada()
+    if sonidos:
+        out['sonidos'] = {'input': sonidos, 'saved': serve.read_json(os.path.join(d, 'sonidos_edit.json'), None)}
     return out
+
+
+def sonidos_entrada():
+    """Los efectos de sonido del index.html, uno a uno, para la pista Sonidos: {items: [{id, label, src, from, to, vol}], mezcla}. mezcla:
+    el sonido final sale de una mezcla con ffmpeg (edicion/audio.json con una pista "sfx"), así que cambiarlos pide volver a montar."""
+    base = os.path.join(PROJECT, 'work', 'mi-estudio', 'index.base.html')
+    html = os.path.join(PROJECT, 'index.html')
+    p = base if os.path.isfile(base) else html
+    if not os.path.isfile(p):
+        return None
+    with open(p, encoding='utf-8', errors='replace') as f:
+        texto = f.read()
+    audio = serve.read_json(os.path.join(edicion_dir(), 'audio.json'), {}) or {}
+    pistas = {s.get('src') for s in audio.get('stems') or [] if isinstance(s, dict)}
+    items = []
+    for tag in re.findall(r'<audio\b[^>]*>', texto):
+        at = dict((k, v) for k, v in re.findall(r'([\w-]+)="([^"]*)"', tag))
+        i, src = at.get('id', ''), at.get('src', '')
+        if not re.fullmatch(r'snd\d+|fx\d+a\d+', i) or src in pistas:
+            continue
+        try:
+            t0, d, v = float(at.get('data-start', 0)), float(at.get('data-duration', 0)), float(at.get('data-volume', 1))
+        except ValueError:
+            continue
+        items.append({'id': i, 'label': os.path.splitext(os.path.basename(src))[0], 'src': src, 'from': round(t0, 3), 'to': round(t0 + max(d, .1), 3), 'vol': v})
+    if not items:
+        return None
+    return {'items': items, 'mezcla': any(s.get('id') == 'sfx' for s in audio.get('stems') or [] if isinstance(s, dict))}
 
 
 def herramientas():

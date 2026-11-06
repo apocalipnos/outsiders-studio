@@ -252,6 +252,8 @@
     if (document.activeElement !== T.el.frame) T.el.frame.value = fr;
     var on_ = T.fx.filter(function (f) { var r = fxRange(f); return f.kind === 'fx' && r && !f.off && T.t >= r[0] && T.t < r[1]; });
     T.el.fxlabel.innerHTML = on_.map(function (f) { return '<span>' + esc(nm(f)) + '</span>'; }).join('');
+    var cur = itemAt(T.t);                            // el clip que se ve: lo que se le hace a un solo clip va a su imagen (.tl-img)
+    T.el.img.dataset.seg = cur && !cur.s.off ? cur.s.id : '';
     on('paint', T.t);
   }
 
@@ -291,7 +293,7 @@
         ((s.in !== s._in0 || s.out !== s._out0) ? '<button data-a="restore">Volver al corte original</button>' : '') + '</div>';
     } else if (T.sel && T.sel.type === 'fx') {
       var f = T.fx[T.sel.id], r = fxRange(f) || [0, 0];
-      html = '<h3>' + (f.kind === 'el' ? 'Capa: ' : 'Efecto: ') + esc(nm(f)) + '</h3><div class="q">Del ' + fmt(r[0]) + ' al ' + fmt(r[1]) + (f.edited ? ' · ajustada a mano' : '') + (T.multi.length > 1 ? ' · ' + T.multi.length + ' elegidas' : '') + '</div>' +
+      html = '<h3>' + (f.sonido ? 'Sonido: ' : f.kind === 'el' ? 'Capa: ' : 'Efecto: ') + esc(nm(f)) + '</h3><div class="q">Del ' + fmt(r[0]) + ' al ' + fmt(r[1]) + (f.edited ? ' · ajustada a mano' : '') + (T.multi.length > 1 ? ' · ' + T.multi.length + ' elegidas' : '') + '</div>' +
         section('fx-tiempo', 'Tiempo', nudges('fxs', 'Empieza', fmt(r[0])) + nudges('fxd', 'Dura', (r[1] - r[0]).toFixed(2) + ' s')) +
         '<div class="tl-acts"><button data-a="playfx">▶ Ver ese momento</button><button data-a="toHead">Mover al cursor</button><button data-a="unplace" class="warn">Quitar</button>' +
         (T.multi.length > 1 ? '<button data-a="group">Agrupar (Ctrl+G)</button>' : '') + (f.group ? '<button data-a="ungroup">Desagrupar (Ctrl+Mayús+G)</button>' : '') + '</div>' +
@@ -919,6 +921,8 @@
     W: W, H: H, FPS: FPS, LW: LW, esc: esc, fmt: fmt, fmtS: fmtS, clamp: clamp, ic: ic,
     state: function () { return T; },
     fxRange: fxRange, timeToX: timeToX, xToTime: xToTime, snapTime: snapTime, anchor: anchor,
+    clipAt: function (t) { var it = itemAt(t); return it && !it.s.off ? it : null; },   // {s, t0, dur}: el clip que se ve en t
+    clipNum: function (id) { var a = active(); for (var i = 0; i < a.length; i++) if (a[i].s.id === id) return i + 1; return null; },
     url: function (p) { return /^(\/|https?:|data:|blob:)/.test(p) ? p : '/p/' + p; },     // ruta del proyecto -> URL
     html: function (h) { return String(h || '').replace(/(src|href)=(["'])(?!\/|https?:|data:|#)/g, '$1=$2/p/'); },
     select: function (sel) { T.sel = sel; T.multi = []; if (sel) T.rtab = 'design'; render(); },
@@ -989,14 +993,14 @@
         '<div class="tl-scroll"><div class="tl-inner"><div class="tl-rulerrow"><div class="tl-corner"></div><div class="tl-ruler"></div></div><div class="tl-rows"></div><div class="tl-guide"></div><div class="tl-head"></div><div class="tl-marquee" hidden></div></div></div></div></div>' +
         '<div class="st-sep v" data-sep="player" role="separator" title="Cambiar el ancho de la vista previa"></div>' +
         '<section class="st-center"><div class="st-stools"><span class="tl-ptools"></span>' + tb('stagesnap', 'snap', 'Imán a la cuadrícula al mover capas') + tb('grid', 'grid', 'Cuadrícula') + tb('gridopts', 'dots', 'Tamaño de la cuadrícula') + '</div><div class="st-stagewrap">' +
-        '<div class="tl-screen"><div class="tl-stage"><div class="tl-rf"></div><div class="st-grid" hidden></div>' +
+        '<div class="tl-screen"><div class="tl-stage"><div class="tl-rf"><div class="tl-img"></div></div><div class="st-grid" hidden></div>' +
         '<div class="tl-ov"></div></div><div class="tl-fxlabel"></div></div></div>' +
         '<div class="st-transport"><div class="st-tl-time"><span class="tl-time"></span><label title="Ir a un fotograma">fot. <input class="st-frame" type="number" min="0"></label></div>' +
         '<div class="st-tl-play"><button class="st-play" data-t="play" title="Reproducir (Espacio)"></button></div>' +
         '<div class="st-tl-right"><input class="st-vol" type="range" min="0" max="1" step="0.01" value="1" title="Volumen de la vista previa">' + tb('mute', 'vol', 'Silenciar (M)') + '<button class="st-tb st-rate" data-t="rate" title="Velocidad de la vista previa">1x</button>' + tb('loop', 'loop', 'Bucle (Mayús+L)') + tb('full', 'full', 'Pantalla completa (F)') + tb('keys', 'keys', 'Teclas y herramientas') + '</div></div>' +
         '<div class="st-board" hidden></div></section></div>';
       var q = function (s) { return root.querySelector(s); };
-      T.el = { root: root, screen: q('.tl-screen'), stage: q('.tl-stage'), rf: q('.tl-rf'), ov: q('.tl-ov'), grid: q('.st-grid'),
+      T.el = { root: root, screen: q('.tl-screen'), stage: q('.tl-stage'), rf: q('.tl-rf'), img: q('.tl-img'), ov: q('.tl-ov'), grid: q('.st-grid'),
                stagewrap: q('.st-stagewrap'), stools: q('.st-stools'), fxlabel: q('.tl-fxlabel'), play: q('[data-t=play]'), time: q('.tl-time'), frame: q('.st-frame'), vol: q('.st-vol'), insp: q('.tl-insp'), rtabs: q('.st-rtabs'),
                ltabs: q('.st-ltabs'), lbody: q('.st-lbody'), left: q('.st-left'), right: q('.st-right'), tl: q('.st-tl'), center: q('.st-center'), board: q('.st-board'), transport: q('.st-transport'),
                ptools: q('.tl-ptools'), mtools: q('.tl-mtools'), kftools: q('.st-kf-tools'), tools: q('.tl-tools'), zoom: q('.tl-zoom'), scroll: q('.tl-scroll'), inner: q('.tl-inner'), ruler: q('.tl-ruler'), rows: q('.tl-rows'), head: q('.tl-head'), guide: q('.tl-guide'), marquee: q('.tl-marquee'), tray: q('.tl-tray') };
@@ -1004,7 +1008,7 @@
       T.deck = [0, 1].map(function () {
         var v = document.createElement('video');
         v.preload = 'auto'; v.playsInline = true; v.crossOrigin = 'anonymous';
-        T.el.rf.appendChild(v);
+        T.el.img.appendChild(v);
         return v;
       });
       // módulos: los del proyecto (edicion/<id>.json) y los que siempre están (Color, Audio FX, Capas libres...)
@@ -1083,7 +1087,7 @@
       });
       var fx = T.fx.filter(function (f) { return f.kind === 'fx'; }).map(function (f) { var r = fxRange(f); return r && { key: f.key, from: Math.round(r[0] * 1000) / 1000, to: Math.round(r[1] * 1000) / 1000 }; })
         .filter(Boolean);
-      var els = T.fx.filter(function (f) { return f.kind === 'el' && !f.libre; }).map(function (f) {
+      var els = T.fx.filter(function (f) { return f.kind === 'el' && !f.libre && !f.sonido; }).map(function (f) {
         var r = fxRange(f) || [0, 0], it = item(f.seg);
         return { id: f.id, label: f.label, from: Math.round(r[0] * 1000) / 1000, to: Math.round(r[1] * 1000) / 1000,
                  edited: !!f.edited, off: !!f.off || !fxRange(f),

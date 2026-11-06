@@ -4,6 +4,8 @@
 //   {video, grade, fonts: [css], css, reframe: {origin: [x, y], default, max} | null,
 //    groups: [{id, label, kind: 'box' | 'center', aspect, lockX, default: {...}, items: [{from, to, label, html, el}]}]}
 //   box: {left, top, width} (alto = ancho / aspect) · center: {cx, top, scale} (centrado en cx, crece hacia abajo)
+//   Cada capa se mueve sola (como en CapCut): lo de una capa va en {<grupo>: {..., items: {<el>: {left, top, width | cx, top, scale}}}};
+//   los subtítulos se mueven todos juntos. "Igual en todas" pasa los valores de una a todo su grupo.
 //   "el" une el item con su bloque de la pista Capas: si lo mueves en el tiempo, en la vista previa sale cuando dice el bloque.
 //   Textos: los del item (sus [data-t="<clave>"], o su "text", o su trozo de texto más largo) se cambian en el panel o
 //   con doble clic en la vista previa -> {<grupo>: {..., texts: {<clave, el o índice>: texto}}}. Los grupos de subtítulos
@@ -13,6 +15,14 @@
   var copy = function (o) { return JSON.parse(JSON.stringify(o)); };
 
   function group(id) { return C.groups.filter(function (g) { return g.id === id; })[0]; }
+  function sola(g, it) { return !!(it && it.el && !(g.words || g.id === 'subs')); }    // se mueve por su cuenta (los subtítulos, todos a la vez)
+  function valOf(gid, it) { var g = group(gid); return sola(g, it) && C.iv[gid][it.el] ? C.iv[gid][it.el] : C.val[gid]; }
+  function suyos(gid, it) {                    // los valores que se tocan: los de esa capa (o la que se ve), o los del grupo
+    var g = group(gid);
+    it = it || C.shown[gid];
+    if (!sola(g, it)) return C.val[gid];
+    return C.iv[gid][it.el] || (C.iv[gid][it.el] = copy(C.val[gid]));
+  }
   function focus() {                         // el grupo elegido: tocado en la vista previa o por su bloque de la pista Capas
     var T = A.state(), s = T.sel;
     if (!s) return null;
@@ -98,7 +108,7 @@
   function edit(gid, e) {                    // doble clic: escribir el texto en la misma vista previa
     var g = group(gid), it = C.shown[gid], el = C.els[gid];
     if (!it || C.ed) return;
-    if (el.classList.contains('real')) el.style.cssText = natural(g, C.val[gid]);   // sobre el resultado: se escribe en su sitio de la edición
+    if (el.classList.contains('real')) el.style.cssText = natural(g, valOf(gid, it));   // sobre el resultado: se escribe en su sitio de la edición
     el.classList.add('ed');
     var ns = nodes(el.querySelector('.cp-in')), n = ns[0];
     ns.forEach(function (x) {                // la parte en la que se hizo doble clic
@@ -178,37 +188,39 @@
         if (box && !box.contains(document.activeElement) && C.rowSig[g.id] !== sig(g.id, hit.it)) box.outerHTML = textRow(g.id, hit.it);
       }
       var rc = rs && hit.it.el && MiResultado.rect(hit.it.el);   // sobre el resultado, justo encima de lo que se ve (cada item puede ir en su sitio)
-      el.style.cssText = rc ? 'left:' + rc.left + 'px;top:' + rc.top + 'px;width:' + rc.width + 'px;height:' + rc.height + 'px' : natural(g, o);
+      el.style.cssText = rc ? 'left:' + rc.left + 'px;top:' + rc.top + 'px;width:' + rc.width + 'px;height:' + rc.height + 'px' : natural(g, valOf(g.id, hit.it));
       el.classList.toggle('real', !!rc);
       el.classList.toggle('sel', g.id === fg);
       el.classList.toggle('ghost', hit.ghost);
     });
   }
 
-  function vals(g) {
-    var o = C.val[g.id];
+  function vals(g, it) {
+    var o = valOf(g.id, it);
     return g.kind === 'box'
       ? ['x ' + Math.round(o.left) + ' · y ' + Math.round(o.top), Math.round(o.width) + ' px de ancho']
       : [(g.lockX ? 'centrado · ' : 'centro x ' + Math.round(o.cx) + ' · ') + 'y ' + Math.round(o.top), Math.round(o.scale * 100) + ' %'];
   }
-  function controls(gid) {
-    var g = group(gid), v = vals(g), b = function (attr, txt, t) { return '<button data-p="capas" data-g="' + gid + '" ' + attr + ' title="' + (t || '') + '">' + txt + '</button>'; };
+  function controls(gid, it) {
+    it = it || C.shown[gid];
+    var g = group(gid), v = vals(g, it), b = function (attr, txt, t) { return '<button data-p="capas" data-g="' + gid + '" data-el="' + A.esc(it && it.el || '') + '" ' + attr + ' title="' + (t || '') + '">' + txt + '</button>'; };
     return '<div class="tl-row"><label>Posición</label><span class="v wide">' + v[0] + '</span>' +
       (g.lockX ? '' : b('data-mv="-1,0"', '←', 'Mayús: 10 px')) + b('data-mv="0,-1"', '↑', 'Mayús: 10 px') + b('data-mv="0,1"', '↓', 'Mayús: 10 px') +
       (g.lockX ? '' : b('data-mv="1,0"', '→', 'Mayús: 10 px')) + '</div>' +
       '<div class="tl-row"><label>Tamaño</label>' + b('data-sz="-1"', '−') + '<span class="v wide">' + v[1] + '</span>' + b('data-sz="1"', '+') + '</div>' +
-      '<div class="tl-acts">' + b('data-a="reset"', 'Restablecer posición y tamaño') + '</div>' +
-      '<div class="help">Arrástrala en la vista previa; los círculos de sus esquinas cambian el tamaño. Vale para ' +
-      (g.items.length > 1 ? 'las ' + g.items.length + ' capas de este grupo' : 'esta capa') + '. Flechas del teclado: 1 px (Mayús: 10 px).</div>';
+      '<div class="tl-acts">' + b('data-a="reset"', 'Restablecer posición y tamaño') +
+      (sola(g, it) && g.items.length > 1 ? b('data-a="all"', 'Igual en todas', 'Pone la posición y el tamaño de esta capa a las ' + g.items.length + ' de «' + A.esc(g.label) + '»') : '') + '</div>' +
+      '<div class="help">Arrástrala en la vista previa; los círculos de sus esquinas cambian el tamaño. ' +
+      (sola(g, it) ? 'Solo cambia esta capa.' : g.items.length > 1 ? 'Vale para las ' + g.items.length + ' capas de este grupo.' : '') + ' Flechas del teclado: 1 px (Mayús: 10 px).</div>';
   }
 
-  function move(gid, dx, dy) {
-    var g = group(gid), o = C.val[gid];
+  function move(gid, dx, dy, it) {
+    var g = group(gid), o = suyos(gid, it);
     if (g.kind === 'box') o.left += dx; else if (!g.lockX) o.cx += dx;
     o.top += dy;
   }
-  function size(gid, k) {
-    var g = group(gid), o = C.val[gid];
+  function size(gid, k, it) {
+    var g = group(gid), o = suyos(gid, it);
     if (g.kind === 'box') o.width = Math.max(120, o.width + 10 * k);
     else o.scale = Math.round(A.clamp(o.scale + 0.02 * k, 0.3, 3) * 1000) / 1000;
   }
@@ -221,12 +233,12 @@
     var T = A.state();
     if (!(T.sel && T.sel.type === 'grp' && T.sel.id === gid)) A.select({ type: 'grp', id: gid });
     A.remember();
-    var g = group(gid), sx = e.clientX, sy = e.clientY, start = copy(C.val[gid]), S = T.S, moved = false;
+    var g = group(gid), sx = e.clientX, sy = e.clientY, start = copy(valOf(gid, C.shown[gid])), S = T.S, moved = false;
     var r0 = C.els[gid].getBoundingClientRect(), startW = r0.width / S, startH = r0.height / S;
     var ofs = (r0.left + r0.width / 2 - T.el.stage.getBoundingClientRect().left) / S - (g.kind === 'box' ? start.left + start.width / 2 : start.cx);   // lo que se ve puede ir desplazado de su grupo
     var gx = /e$/.test(mode) ? 1 : -1, gy = /^s/.test(mode) ? 1 : -1;    // la esquina que se arrastra: la contraria se queda quieta
     function mv(ev) {
-      var dx = (ev.clientX - sx) / S, dy = (ev.clientY - sy) / S, o = C.val[gid], c;
+      var dx = (ev.clientX - sx) / S, dy = (ev.clientY - sy) / S, o = suyos(gid), c;
       if (!moved && Math.abs(dx) + Math.abs(dy) < 2) return;
       moved = true;
       if (mode === 'move') {
@@ -260,17 +272,18 @@
       if (!input || !input.groups) return false;
       A = api;
       var T = A.state();
-      C = { groups: input.groups, rz: input.reframe || null, els: {}, byEl: {}, val: {}, txt: {}, shown: {}, rowSig: {}, ed: null, lastMem: 0 };
+      C = { groups: input.groups, rz: input.reframe || null, els: {}, byEl: {}, val: {}, iv: {}, txt: {}, shown: {}, rowSig: {}, ed: null, lastMem: 0 };
       var HANDLES = ['nw', 'ne', 'sw', 'se'].map(function (c) { return '<div class="cp-h ' + c + '" data-c="' + c + '"></div>'; }).join('');
       C.groups.forEach(function (g) {
         var sv = Object.assign({}, (saved || {})[g.id] || {});
         C.txt[g.id] = sv.texts || {};
-        delete sv.texts;
+        C.iv[g.id] = sv.items || {};
+        delete sv.texts; delete sv.items;
         C.val[g.id] = Object.assign(copy(g.default), sv);
         g.items.forEach(function (it) { if (it.el) C.byEl[it.el] = g.id; });
       });
       if (C.rz) C.val.reframe = { zoom: ((saved || {}).reframe || {}).zoom || C.rz.default || 1 };
-      C.val0 = JSON.stringify(C.val);
+      C.val0 = JSON.stringify(C.val); C.iv0 = JSON.stringify(C.iv);
       (input.fonts || []).forEach(function (f) {
         if (document.querySelector('link[data-cp="' + f + '"]')) return;
         var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = A.url(f); l.dataset.cp = f; document.head.appendChild(l);
@@ -314,29 +327,30 @@
       return out;
     },
     helpExtra: function () {
-      return '<b>Capas en la vista previa:</b> toca una para elegirla, arrástrala para moverla y los círculos de sus esquinas cambian el tamaño (vale para todo su grupo). ' +
+      return '<b>Capas en la vista previa:</b> toca una para elegirla, arrástrala para moverla y los círculos de sus esquinas cambian el tamaño; cada capa va por su cuenta (los subtítulos, todos juntos). ' +
         '<b>Textos</b> (títulos, subtítulos...): doble clic encima para escribir ahí mismo (Intro termina, Esc deshace), o en el campo Texto del panel. ' +
         '<b>Zoom general</b> (arriba de la vista previa) acerca el plano de todos los clips.<br>';
     },
     inspector: function (sel) {
       var g = group(sel.id), hit = itemAt(g, A.state().t, true);
-      return '<h3>Capa: ' + A.esc(g.label) + '</h3><div class="q">Texto, posición y tamaño en el vídeo</div>' + textRow(sel.id, hit && hit.it) + controls(sel.id);
+      return '<h3>Capa: ' + A.esc(g.label) + '</h3><div class="q">Texto, posición y tamaño en el vídeo</div>' + textRow(sel.id, hit && hit.it) + controls(sel.id, hit && hit.it);
     },
     inspectorExtra: function (sel, f) {
       var gid = f.kind === 'el' && C.byEl[f.id];
       if (!gid) return '';
       var it = group(gid).items.filter(function (x) { return x.el === f.id; })[0];
       return '<div class="tl-sub"><h4>Texto · ' + A.esc(group(gid).label) + '</h4>' + textRow(gid, it) + '</div>' +
-        '<div class="tl-sub"><h4>Posición y tamaño · ' + A.esc(group(gid).label) + '</h4>' + controls(gid) + '</div>';
+        '<div class="tl-sub"><h4>Posición y tamaño · ' + A.esc(it && it.label || group(gid).label) + '</h4>' + controls(gid, it) + '</div>';
     },
     onClick: function (b, e) {
-      var gid = b.dataset.g, k = e.shiftKey ? 10 : 1;
+      var gid = b.dataset.g, k = e.shiftKey ? 10 : 1, cual = b.dataset.el && group(gid) ? group(gid).items.filter(function (x) { return x.el === b.dataset.el; })[0] : null;
       A.remember();
       if (b.dataset.a === 'txt0') { delete C.txt[gid][b.dataset.t]; A.touched('capas'); }
       else if (b.dataset.a === 'rz') C.val.reframe.zoom = C.rz.default || 1;
-      else if (b.dataset.a === 'reset') C.val[gid] = copy(group(gid).default);
-      else if (b.dataset.mv) { var d = b.dataset.mv.split(','); move(gid, +d[0] * k, +d[1] * k); }
-      else if (b.dataset.sz) size(gid, +b.dataset.sz * k);
+      else if (b.dataset.a === 'reset') { var it = cual || C.shown[gid]; if (sola(group(gid), it) && C.iv[gid][it.el]) delete C.iv[gid][it.el]; else C.val[gid] = copy(group(gid).default); }
+      else if (b.dataset.a === 'all') { C.val[gid] = copy(valOf(gid, cual || C.shown[gid])); C.iv[gid] = {}; }
+      else if (b.dataset.mv) { var d = b.dataset.mv.split(','); move(gid, +d[0] * k, +d[1] * k, cual); }
+      else if (b.dataset.sz) size(gid, +b.dataset.sz * k, cual);
       touch();
     },
     onInput: function (el) {
@@ -363,14 +377,22 @@
       touch();
       return true;
     },
-    snap: function () { return { v: copy(C.val), t: copy(C.txt) }; },
-    restore: function (s) { C.val = copy(s.v); C.txt = copy(s.t); },
+    snap: function () { return { v: copy(C.val), i: copy(C.iv), t: copy(C.txt) }; },
+    restore: function (s) { C.val = copy(s.v); C.iv = copy(s.i || {}); C.txt = copy(s.t); },
     data: function () {
       var out = copy(C.val);
       Object.keys(out).forEach(function (g) {
         Object.keys(out[g]).forEach(function (k) { out[g][k] = /scale|zoom/.test(k) ? Math.round(out[g][k] * 1000) / 1000 : Math.round(out[g][k]); });
       });
       Object.keys(C.txt).forEach(function (g) { if (Object.keys(C.txt[g]).length) out[g].texts = copy(C.txt[g]); });
+      Object.keys(C.iv).forEach(function (g) {
+        var its = {};
+        Object.keys(C.iv[g]).forEach(function (el) {
+          var o = its[el] = {};
+          Object.keys(C.iv[g][el]).forEach(function (k) { o[k] = /scale/.test(k) ? Math.round(C.iv[g][el][k] * 1000) / 1000 : Math.round(C.iv[g][el][k]); });
+        });
+        if (Object.keys(its).length) out[g].items = its;
+      });
       return out;
     }
   });

@@ -23,7 +23,7 @@
     stopSrc();
     U.stems.forEach(function (s) {
       var b = U.bufs[s.id];
-      if (!b || at >= b.duration) return;
+      if (!b || at >= b.duration || (s.id === 'sfx' && window.MiSonidos)) return;     // los efectos ya suenan uno a uno (sonidos.js)
       var src = U.ctx.createBufferSource(); src.buffer = b; src.connect(U.nodes[s.id].input || U.nodes[s.id].gain);
       src.playbackRate.value = A.state().rate;
       src.start(0, at); U.srcs.push(src);
