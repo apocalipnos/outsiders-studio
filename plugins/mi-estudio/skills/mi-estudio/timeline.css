@@ -36,6 +36,7 @@
 .tl-screen { position: relative; aspect-ratio: 9/16; background: #000; overflow: hidden; }
 .tl-stage { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; transform-origin: 0 0; overflow: hidden; }
 .tl-rf { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; overflow: hidden; }
+.tl-img { position: absolute; inset: 0; }
 .tl-rf video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
 .tl-rf video.on { opacity: 1; }
 .st-grid { position: absolute; inset: 0; z-index: 35; pointer-events: none; }

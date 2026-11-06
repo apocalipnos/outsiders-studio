@@ -36,13 +36,15 @@
     var T = A.state(), s = T.sel;
     if (!s) return null;
     if (s.type === 'grp') return 'grp:' + s.id;
-    if (s.type === 'seg') return 'video';
-    if (s.type === 'fx') { var f = T.fx[s.id]; if (f && f.kind === 'el') return (f.libre ? 'lib:' : 'el:') + f.id; }
+    if (s.type === 'seg') { var it = T.L.filter(function (x) { return x.s._id === s.id; })[0]; return it && !it.s.off ? 'seg:' + it.s.id : null; }   // solo ese clip
+    if (s.type === 'fx') { var f = T.fx[s.id]; if (f && f.kind === 'el' && !f.sonido) return (f.libre ? 'lib:' : 'el:') + f.id; }
     return null;
   }
   function tid(tg) { return tg.slice(tg.indexOf(':') + 1); }
+  function vidLike(tg) { return tg === 'video' || tg.indexOf('seg:') === 0; }     // el vídeo entero o un clip: sin capa ni contenido
   function sels(tg) {                       // los selectores de una capa en la vista previa
     if (tg === 'video') return { outer: '.tl-rf', inner: '.tl-rf' };
+    if (tg.indexOf('seg:') === 0) { var q = '.tl-img[data-seg="' + tid(tg) + '"]'; return { outer: q, inner: q }; }   // su imagen, mientras se ve
     var id = tid(tg), o;
     if (tg.indexOf('grp:') === 0) o = '.cp-g[data-g="' + id + '"]';
     else if (tg.indexOf('lib:') === 0) return { outer: '.lb-l[data-lb="' + id + '"]', inner: '.lb-l[data-lb="' + id + '"] .lb-in' };
@@ -52,6 +54,7 @@
   function node(tg) {                       // los elementos reales: capa, interior y raíz del contenido
     var ov = A.state().el.ov, d, inner;
     if (tg === 'video') return { outer: A.state().el.rf, inner: A.state().el.rf, root: A.state().el.rf };
+    if (tg.indexOf('seg:') === 0) return { outer: A.state().el.img, inner: A.state().el.img, root: A.state().el.img };
     if (tg.indexOf('lib:') === 0) { d = ov.querySelector('.lb-l[data-lb="' + cssq(tid(tg)) + '"]'); inner = d && d.querySelector('.lb-in'); }
     else { var g = tg.indexOf('grp:') === 0 ? tid(tg) : groupOf(tid(tg)); d = g && ov.querySelector('.cp-g[data-g="' + cssq(g) + '"]'); inner = d && d.querySelector('.cp-in'); }
     if (!d || !inner) return null;
@@ -73,13 +76,13 @@
       if (tg.indexOf('el:') === 0) E.els.push(tid(tg));
       if (!s) return;
       Object.keys(css).forEach(function (k) {
-        var bang = SOFT[k] || tg === 'video' ? '' : ' !important', d = k + ':' + fix(css[k]) + bang + ';';
+        var bang = SOFT[k] || vidLike(tg) ? '' : ' !important', d = k + ':' + fix(css[k]) + bang + ';';
         if (k === 'mix-blend-mode') w += d; else if (TEXT[k]) t += d; else r += d;
       });
-      if (o.z != null && tg !== 'video') w += 'z-index:' + o.z + ' !important;';
-      if (o.crop) r += 'clip-path:inset(' + (o.crop.top || 0) + '% ' + (o.crop.right || 0) + '% ' + (o.crop.bottom || 0) + '% ' + (o.crop.left || 0) + '%)' + (tg === 'video' ? '' : ' !important') + ';';
+      if (o.z != null && !vidLike(tg)) w += 'z-index:' + o.z + ' !important;';
+      if (o.crop) r += 'clip-path:inset(' + (o.crop.top || 0) + '% ' + (o.crop.right || 0) + '% ' + (o.crop.bottom || 0) + '% ' + (o.crop.left || 0) + '%)' + (vidLike(tg) ? '' : ' !important') + ';';
       if (w) out += s.outer + '{' + w + '}\n';
-      if (r) out += tg === 'video' ? s.outer + '{' + r + '}\n' : s.inner + ' > :only-child,' + s.inner + ':has(> :nth-child(2)),' + s.inner + ':not(:has(> *)){' + r + '}\n';
+      if (r) out += vidLike(tg) ? s.outer + '{' + r + '}\n' : s.inner + ' > :only-child,' + s.inner + ':has(> :nth-child(2)),' + s.inner + ':not(:has(> *)){' + r + '}\n';
       if (t) out += s.inner + ',' + s.inner + ' *{' + t + '}\n';
     });
     E.style.textContent = out;
@@ -411,7 +414,7 @@
       row('Separación', nI('px:gap', num(c.gap), 0, { u: 'px', min: 0 }));
   }
   function panel(tg) {
-    var o = E.targets[tg] || { css: {} }, c = o.css || {}, n = node(tg), S = A.section, vid = tg === 'video', html = '';
+    var o = E.targets[tg] || { css: {} }, c = o.css || {}, n = node(tg), S = A.section, vid = vidLike(tg), html = '';
     var libType = tg.indexOf('lib:') === 0 && window.MiLibres && (MiLibres.get(tid(tg)) || {}).type;
     if (libType === 'audio') return '';
     var hasText = n && !vid && n.inner.textContent.trim();

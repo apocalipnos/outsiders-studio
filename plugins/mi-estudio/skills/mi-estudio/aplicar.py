@@ -30,6 +30,9 @@ Cómo se pasa cada cosa (lo que no es obvio, comprobado con renders de HyperFram
   suma y cada sonido conserva su volumen. Una automatización de "volume" sustituye a data-volume mientras exista.
 - Eases spring(), wiggle(), custom() y hold: los registra el runtime en GSAP, se escriben tal cual. El de una clave es el del
   tramo que llega a ella.
+- Un solo clip (objetivo seg:<id>): una copia de su trozo de vídeo encima del montaje mientras dura (_clips), con su color, estilo y
+  claves; así no toca a los demás clips aunque salgan de la misma grabación.
+- Capas: cada capa movida por su cuenta ("items" de su grupo) lleva su propia caja .me-c. Sonidos: cada <audio> por su id.
 """
 import json
 import math
@@ -44,7 +47,7 @@ import edicion
 import hdr
 
 MARCA = '<!-- mi-estudio:aplicado -->'
-TOOLS = ('capas', 'tiempos', 'pistas', 'color', 'audiofx', 'estilo', 'claves', 'libres')
+TOOLS = ('capas', 'tiempos', 'pistas', 'color', 'audiofx', 'estilo', 'claves', 'libres', 'sonidos')
 PROPS = ('x', 'y', 'scale', 'rotation', 'rotationX', 'rotationY', 'z', 'opacity')
 FX_TIPOS = {'gain', 'peaking', 'lowshelf', 'highshelf', 'highpass', 'lowpass', 'compressor', 'limiter', 'gate', 'saturate',
             'bitcrush', 'pitchshift', 'delay', 'chorus', 'phaser', 'reverb'}   # otro tipo tumba el render entero
@@ -167,10 +170,10 @@ class _Ctx:
         self.proj, self.avisos = proj, avisos
         self.css, self.js, self.giran, self.cajas, self.enlaces = [], [], [], set(), []
         self.arcos, self.oculta, self.con_caja, self.rangos = False, False, False, {}
-        C, A =_leer_json(os.path.join(proj, 'edicion', 'capas.json')), _leer_json(os.path.join(proj, 'edicion', 'audio.json'))
+        C, A = edicion.capas_entrada(proj), _leer_json(os.path.join(proj, 'edicion', 'audio.json'))      # con los subtítulos de index.html
         self.grupos = (C.get('groups') or []) if isinstance(C, dict) else []
         self.stems = (A.get('stems') or []) if isinstance(A, dict) else []
-        self.apagadas, self.libres = set(), []
+        self.apagadas, self.libres, self.color_propio = set(), [], set()
         self.cargar(texto)
         self.reloj = None
         try:
@@ -220,6 +223,9 @@ def _visuales(ctx, obj):
     out = None
     if obj == 'video':
         out = [ctx.h.ids['footage']] if 'footage' in ctx.h.ids else []
+    elif obj.startswith('seg:'):
+        n = ctx.h.ids.get('sg-' + _seguro(obj[4:]))
+        out = [n] if n is not None else []
     elif obj.startswith('el:'):
         out = ctx.capas.get(obj[3:], [])
     elif obj.startswith('grp:'):
@@ -239,6 +245,8 @@ def _cajas(ctx, n):
     nid = n.attrs['id']
     if nid.startswith('lib-'):
         return '#' + nid, '#' + nid + '-i'
+    if nid.startswith('sg-'):          # un clip: todo en su imagen, que gira y se mueve dentro del fondo negro fijo
+        return '#' + nid + '-i', '#' + nid + '-i'
     if nid in ('footage', 'caps'):
         ctx.regla('#' + nid, 'position:absolute;left:0;top:0;width:%spx;height:%spx' % (_f(ctx.W), _f(ctx.H)))
     if nid == 'footage':
@@ -278,7 +286,8 @@ def _media(ctx, nodos):
 def _videos_footage(ctx, graduables=False):
     fo, sl = ctx.h.ids.get('footage'), ctx.h.ids.get('slots')
     out = [m for m in ctx.h.nodos if m.tag == 'video' and fo is not None and m.dentro(fo)]
-    if graduables:      # las tomas de efecto que llevan el mismo color que el vídeo (class gr); las overlay no
+    if graduables:      # un clip con color propio no lleva el de toda la pista; las tomas de efecto con el color del vídeo (class gr), sí; las overlay no
+        out = [m for m in out if not ((m.attrs.get('id') or '').startswith('sg-') and m.attrs['id'][3:-2] in ctx.color_propio)]
         out += [m for m in ctx.h.nodos if m.tag == 'video' and sl is not None and m.dentro(sl)
                 and 'gr' in (m.attrs.get('class') or '').split()]
     return out
@@ -362,6 +371,8 @@ def _capas(ctx, data):
         if any(_num(x.get(k)) is None for x in (m, v) for k in orden) or not m[orden[2]]:
             ctx.avisos.append('Capas %s: le faltan posición o tamaño, se salta.' % g['id'])
             continue
+        if g.get('auto'):                   # sacado del index.html por Mi Estudio: el HTML de base nunca lo trae movido
+            m = d
         trans = _desplaza(g, m, v)
         if edicion._es_subtitulos(g):       # las palabras están en #caps y los textos van a words.json al procesar
             caps = ctx.h.ids.get('caps')
@@ -369,7 +380,11 @@ def _capas(ctx, data):
                 _caja(ctx, g, m, trans, caps.b, caps.fin)
                 hechas += 1
             continue
+        sueltas = guardado.get('items') if isinstance(guardado.get('items'), dict) else {}
         for it in g.get('items') or []:
+            propia = sueltas.get(it.get('el')) if isinstance(sueltas.get(it.get('el')), dict) else None
+            vi = dict(v, **{k: x for k, x in (propia or {}).items() if k in orden and _num(x) is not None})
+            trans = _desplaza(g, m, vi)     # cada capa por su cuenta: la que se movió sola lleva sus valores, las demás los del grupo
             for n in ctx.capas.get(it.get('el'), []):
                 if n.fin is None:
                     continue
@@ -605,6 +620,31 @@ def _json(o):
     return json.dumps(o, ensure_ascii=False, separators=(',', ':'))
 
 
+def _sonidos(ctx, data):
+    """Cada efecto de sonido por su cuenta (sonidos.js): {"items": {"<id>": {"from","to","anchor","off","db"}}}. Cambia su <audio> del
+    HTML: cuándo empieza, cuánto dura y su volumen (db sobre el que tenía). Quitado = volumen 0."""
+    hechas = 0
+    for i, d in sorted((data.get('items') or {}).items()):
+        n = ctx.h.ids.get(i)
+        if n is None or n.tag != 'audio' or not isinstance(d, dict):
+            ctx.avisos.append('Sonido %s: no está en index.html, se salta.' % i)
+            continue
+        if d.get('off'):
+            ctx.h.set(n, 'data-volume', '0')
+            hechas += 1
+            continue
+        d0, d1 = _num(d.get('from')), _num(d.get('to'))
+        if d0 is not None and d1 is not None and d1 > d0:
+            ctx.h.set(n, 'data-start', '%.3f' % max(ctx.tiempo(d0, d.get('anchor')), 0.0))
+            ctx.h.set(n, 'data-duration', '%.3f' % (d1 - d0))
+        db = _num(d.get('db'))
+        if db:
+            base = float(n.attrs['data-volume']) if re.fullmatch(r'[\d.]+', n.attrs.get('data-volume') or '') else 1.0
+            ctx.h.set(n, 'data-volume', _f(min(base * 10 ** (db / 20), GANANCIA_MAX)))
+        hechas += 1
+    return hechas
+
+
 def _audiofx(ctx, data):
     chains, autos, vols = data.get('chains') or {}, data.get('automation') or {}, data.get('volume') or {}
     hechas = 0
@@ -693,7 +733,7 @@ def _estilo(ctx, data):
                     ctx.avisos.append('Estilo de %s: %s no válido, se salta.' % (obj, k))
                     continue
                 d, imp = '%s:%s' % (k, v), '%s:%s!important' % (k, v)
-                if obj == 'video':
+                if obj == 'video' or obj.startswith('seg:'):
                     raiz.append(d)
                 elif k in _TEXTO or k.startswith('font'):
                     texto.append(imp)
@@ -710,10 +750,10 @@ def _estilo(ctx, data):
                     if k == 'border-radius':
                         ctx.regla('%s img,%s video' % (inte, inte), imp)
             z = _num(e.get('z'))
-            if z is not None and obj != 'video':     # z empieza en 1: siempre sobre el vídeo
+            if z is not None and not (obj == 'video' or obj.startswith('seg:')):     # z empieza en 1: siempre sobre el vídeo
                 capa.append('z-index:%d!important' % z)
             propio = '#' + n.attrs['id']
-            for sel, decl in ((propio, capa), (ext, fuera), (inte, dentro), ('%s,%s *' % (inte, inte), texto), (_raiz(ctx, n, inte) if obj != 'video' else ext, raiz)):
+            for sel, decl in ((propio, capa), (ext, fuera), (inte, dentro), ('%s,%s *' % (inte, inte), texto), (ext if obj == 'video' or obj.startswith('seg:') else _raiz(ctx, n, inte), raiz)):
                 if decl:
                     ctx.regla(sel, ';'.join(decl))
             hechas += 1
@@ -798,7 +838,7 @@ def _claves(ctx, data):
             ns = [n for n in nodos if not (obj.startswith('grp:') and prop in propias.get(n.attrs['id'], ()))]
             return [_cajas(ctx, n)[0 if prop in ('x', 'y') else 1] for n in ns]
         for prop, pts in pistas.items():
-            if obj == 'video' and prop in ('x', 'y') and ctx.zoom != 1:     # #footage está dentro de #reframe: en píxeles de pantalla
+            if (obj == 'video' or obj.startswith('seg:')) and prop in ('x', 'y') and ctx.zoom != 1:     # #footage está dentro de #reframe: en píxeles de pantalla
                 pistas[prop] = [(t, v / ctx.zoom, e) for t, v, e in pts]
         ruta = paths.get(obj) if isinstance(paths.get(obj), dict) else {}
         xs, ys = pistas.get('x'), pistas.get('y')
@@ -954,6 +994,52 @@ def _libres(ctx, data):
     return hechas
 
 
+# ---------- un clip con lo suyo (color, estilo, claves de "seg:<id>") ----------
+
+def _clips(ctx, datos):
+    """Lo que se le hace a un solo clip va en una copia de su trozo de vídeo, encima del montaje y solo mientras dura: #sg-<id> (fondo
+    negro fijo, para las esquinas al girar o mover) > #sg-<id>-i (lo que gira, se mueve y lleva el estilo) > <video> (su color). Va dentro
+    del padre del vídeo de fondo, así lleva el mismo filtro del plan. Los tiempos son los del montaje (segments.json)."""
+    ids = set()
+    for tool, k in (('color', 'targets'), ('estilo', 'targets'), ('claves', 'tracks')):
+        d = datos.get(tool)
+        for obj, v in ((d.get(k) or {}).items() if isinstance(d, dict) else []):
+            if str(obj).startswith('seg:') and v:
+                ids.add(str(obj)[4:])
+                if tool == 'color' and isinstance(v, dict) and any(v.values()):
+                    ctx.color_propio.add(_seguro(str(obj)[4:]))
+    if not ids:
+        return 0
+    segs = _leer_json(os.path.join(ctx.proj, 'segments.json'), [])
+    rango = {s.get('id'): (s['frame'] / 30.0, (s['frame'] + s['frames']) / 30.0) for s in segs if isinstance(s, dict) and 'frame' in s and 'frames' in s}
+    fo = ctx.h.ids.get('footage')
+    bgv = next((m for m in ctx.h.nodos if m.tag == 'video' and fo is not None and m.dentro(fo)), None)
+    if bgv is None or bgv.fin is None:
+        ctx.avisos.append('Ajustes de un clip: no se encuentra el vídeo de fondo (#footage), se saltan.')
+        return 0
+    desde = _num(bgv.attrs.get('data-media-start'), 0.0)
+    clase = bgv.attrs.get('class') or ''
+    trozos = []
+    for k, i in enumerate(sorted(ids)):
+        if i not in rango:
+            ctx.avisos.append('Ajustes del clip %s: no está en el montaje (¿falta procesar los cortes?), se saltan.' % i)
+            continue
+        t0, t1 = rango[i]
+        s = _seguro(i)
+        trozos.append('<div id="sg-%s" style="position:absolute;left:0;top:0;width:%spx;height:%spx;background:#000;overflow:hidden">'
+                      '<div id="sg-%s-i" style="position:absolute;left:0;top:0;width:100%%;height:100%%">'
+                      '<video id="sg-%s-m"%s src=%s muted playsinline data-start="%.3f" data-media-start="%.3f" data-duration="%.3f" data-track-index="%d" '
+                      'style="position:absolute;left:0;top:0;width:100%%;height:100%%;object-fit:cover"></video></div></div>' % (
+                          s, _f(ctx.W), _f(ctx.H), s, s, ' class=%s' % _comillas(clase) if clase else '', _comillas(bgv.attrs.get('src') or ''),
+                          t0, t0 + desde, t1 - t0, 300 + k))
+        _aparece(ctx, '#sg-' + s, t0, t1)
+    if trozos:
+        padre = bgv.padre if bgv.padre is not None and bgv.padre is not fo and bgv.padre.fin is not None else bgv
+        fin = padre.fin + ctx.h.texto[padre.fin:].index('>') + 1 if padre is bgv else padre.fin
+        ctx.h.meter(fin, ''.join(trozos))
+    return len(trozos)
+
+
 # ---------- todo junto ----------
 
 def _componer(proj, texto, datos, resumen):
@@ -970,11 +1056,17 @@ def _componer(proj, texto, datos, resumen):
                 resumen['avisos'].append('%s_edit.json no se pudo aplicar: %r' % (tool, e))
 
     paso('libres', _libres)
-    ctx.cargar(ctx.h.volcar())          # lo de los libres ya está en el texto: el resto los ve como cualquier otro elemento
+    try:
+        n = _clips(ctx, datos)
+        if n:
+            resumen['aplicado']['clips'] = n
+    except Exception as e:      # noqa: BLE001
+        resumen['avisos'].append('Los ajustes de un clip no se pudieron aplicar: %r' % e)
+    ctx.cargar(ctx.h.volcar())          # lo de los libres y los clips ya está en el texto: el resto los ve como cualquier otro elemento
     paso('capas', _capas)
     paso('tiempos', _tiempos)
     ctx.cargar(ctx.h.volcar())          # y las cajas de las capas: la raíz de su contenido (estilo) va por dentro de ellas
-    for tool, fn in (('pistas', _pistas), ('color', _color), ('audiofx', _audiofx), ('estilo', _estilo), ('claves', _claves)):
+    for tool, fn in (('pistas', _pistas), ('sonidos', _sonidos), ('color', _color), ('audiofx', _audiofx), ('estilo', _estilo), ('claves', _claves)):
         paso(tool, fn)
     if ctx.oculta:
         ctx.regla('[data-hidden]', 'display:none!important')

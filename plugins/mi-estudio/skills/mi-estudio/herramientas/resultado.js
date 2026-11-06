@@ -11,7 +11,7 @@
     '.rs-load{position:absolute;inset:0;display:grid;place-items:center;color:var(--t2);font-size:32px;text-align:center;padding:48px;background:rgba(0,0,0,.72);z-index:1}' +
     '.rs-on .tl-ov{z-index:40}.rs-on .cp-in,.rs-on .lb-in{visibility:hidden}.rs-on .cp-g.ed .cp-in,.rs-on .lb-edit{visibility:visible}.rs-on .cp-g.ed,.rs-on .lb-edit{background:rgba(0,0,0,.7)}' +
     '.rs-on .cp-g{translate:none!important;rotate:none!important;scale:none!important;opacity:1!important}.rs-on .cp-g.ghost{opacity:.5!important}.rs-on .sb-live{display:none}.rs-play .tl-ov{visibility:hidden}';
-  var GEO = { left: 1, top: 1, width: 1, cx: 1, scale: 1 };
+  var GEO = { left: 1, top: 1, width: 1, cx: 1, scale: 1, items: 1 };     // items: lo de cada capa movida por su cuenta
 
   // Cada clip tal como quedó dentro del vídeo montado: su trozo del clip y su segundo en el montaje.
   function montaje() {
@@ -153,7 +153,7 @@
       if (g === 'reframe') return;
       var cajas = d.querySelectorAll('.me-c[data-g="' + CSS.escape(g) + '"]');
       if (!cajas.length && JSON.stringify((ant.capas || {})[g]) !== JSON.stringify(ed.capas[g])) falta = true;   // subtítulos sin mover todavía: aún no tienen caja
-      [].forEach.call(cajas, function (w) { caja(w, ed.capas[g]); });
+      [].forEach.call(cajas, function (w) { caja(w, Object.assign({}, ed.capas[g], ((ed.capas[g].items || {})[w.dataset.el]) || {})); });
     });
     if (falta) return false;
     ((ed.libres || {}).items || []).forEach(function (it) {

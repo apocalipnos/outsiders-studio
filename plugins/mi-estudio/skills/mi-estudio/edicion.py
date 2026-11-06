@@ -70,6 +70,104 @@ def _es_subtitulos(g):
     return g.get('words') is True or g.get('id') == 'subs'
 
 
+def _html_base(proj):
+    for p in (os.path.join(proj, 'work', 'mi-estudio', 'index.base.html'), os.path.join(proj, 'index.html')):
+        if os.path.isfile(p):
+            with open(p, encoding='utf-8', errors='replace') as f:
+                return f.read()
+    return ''
+
+
+def _hijos(texto, i):
+    """Los elementos de primer nivel dentro del que abre en i: [(inicio, fin)] del texto, sus etiquetas incluidas."""
+    out, nivel, ini = [], 0, None
+    for m in re.finditer(r'<(/?)(div|span|p|b|i|em|strong|br)\b[^>]*?(/?)>', texto[i:]):
+        a = i + m.start()
+        if m.group(2) == 'br' or m.group(3):
+            continue
+        if m.group(1):
+            nivel -= 1
+            if nivel == 0:
+                return out
+            if nivel == 1 and ini is not None:
+                out.append((ini, i + m.end()))
+                ini = None
+        else:
+            nivel += 1
+            if nivel == 2:
+                ini = a
+    return out
+
+
+def _subtitulos_html(proj):
+    """Los subtítulos de video-studio (#caps > .cap) como un grupo de Capas, para moverlos y cambiarlos de tamaño en cualquier vídeo:
+    (grupo, css de la vista previa) o (None, '')."""
+    h = _html_base(proj)
+    i = re.search(r'<div[^>]*\bid="caps"[^>]*>', h)
+    if not i:
+        return None, ''
+    hijos = _hijos(h, i.start())
+    if len(hijos) == 1 and re.match(r'<div class="me-c"', h[hijos[0][0]:hijos[0][1]]):     # ya movidos por aplicar.py: por dentro de su caja
+        hijos = _hijos(h, hijos[0][0])
+    caps = [(a, b) for a, b in hijos if re.match(r'<div[^>]*\bid="(c\d+)"', h[a:b])]
+    if not caps:
+        return None, ''
+    script = ''.join(re.findall(r'<script>(.*?)</script>', h, re.S))
+    dur = re.search(r'data-composition-id[^>]*data-duration="([\d.]+)"|data-duration="([\d.]+)"[^>]*data-composition-id', h)
+    dur = float(next(x for x in dur.groups() if x)) if dur else 0.0
+    css = ''.join(re.findall(r'<style[^>]*>(.*?)</style>', h, re.S))
+    clases, items = set(), []
+    for a, b in caps:
+        cid = re.match(r'<div[^>]*\bid="(c\d+)"', h[a:b]).group(1)
+        sel = re.escape('#' + cid)
+        cambios = sorted((float(t), v) for v, t in re.findall(r"\.(?:set|to|fromTo)\('%s',(?:\{[^}]*\},)?\{[^}]*autoAlpha:([01])[^}]*\},([\d.]+)\)" % sel, script))
+        oculta = re.search(r"gsap\.set\('%s',\{autoAlpha:0\}\)" % sel, script)
+        t0 = next((t for t, v in cambios if v == '1'), None if oculta else 0.0)
+        if t0 is None:
+            continue
+        t1 = next((t for t, v in cambios if v == '0' and t > t0), dur or t0 + 2)
+        trozo = re.sub(r'\sid="[^"]*"', '', h[a:b])                  # sin ids: no pueden repetirse en la página
+        clases.update(re.findall(r'class="([^"]*)"', trozo))
+        texto = _html.unescape(re.sub(r'<[^>]+>', ' ', trozo))
+        items.append({'from': round(t0, 3), 'to': round(t1, 3), 'label': 'Subtítulos', 'html': trozo.strip(), 'text': ' '.join(texto.split())})
+    if not items:
+        return None, ''
+    nombres = {c for x in clases for c in x.split()}
+    top = 1200.0
+    for c in re.findall(r'class="([^"]*)"', h[caps[0][0]:caps[0][1]])[0].split():
+        m = re.search(r'\.%s\s*\{[^}]*?\btop:\s*([\d.]+)px' % re.escape(c), css)
+        if m:
+            top = float(m.group(1))
+    reglas, scope = [], '.cp-g[data-g="subs"] '
+    for sel, cuerpo in re.findall(r'([^{}@]+)\{([^{}]*)\}', re.sub(r'@[^{]+\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}', '', css)):
+        sels = [s.strip() for s in sel.split(',') if s.strip()]
+        if any(set(re.findall(r'\.([\w-]+)', s)) & nombres for s in sels):
+            reglas.append(','.join(scope + s for s in sels) + '{' + cuerpo + '}')
+    reglas.append(scope + '.cap{position:relative!important;left:auto!important;top:auto!important;width:auto!important}')
+    g = {'id': 'subs', 'label': 'Subtítulos', 'kind': 'center', 'lockX': True, 'words': True, 'auto': True,
+         'default': {'cx': 540, 'top': top, 'scale': 1}, 'items': items}
+    return g, '\n' + '\n'.join(reglas)
+
+
+def capas_entrada(proj):
+    """Lo que enseña el módulo Capas: edicion/capas.json y, si no trae subtítulos, los de index.html (grupo "subs" con "auto": true), así
+    en todos los vídeos se pueden mover y cambiar de tamaño. None si no hay nada que enseñar."""
+    p = _path(proj, 'capas')
+    try:
+        C = json.load(open(p, encoding='utf-8')) if os.path.isfile(p) else {}
+    except ValueError:
+        C = {}
+    C = C if isinstance(C, dict) else {}
+    grupos = [g for g in C.get('groups') or [] if isinstance(g, dict)]
+    if not any(_es_subtitulos(g) for g in grupos):
+        g, css = _subtitulos_html(proj)
+        if g:
+            C = dict(C, groups=grupos + [g], css=(C.get('css') or '') + css)
+            if not C.get('fonts') and os.path.isfile(os.path.join(proj, 'assets', 'fonts', 'fonts.css')):
+                C['fonts'] = ['assets/fonts/fonts.css']
+    return C if C.get('groups') else None
+
+
 def _texto_html(h):
     partes = [p.strip() for p in re.split(r'<[^>]*>', h or '')]
     return _html.unescape(max(partes, key=len)) if partes else ''
@@ -111,9 +209,9 @@ def aplicar_subtitulos(proj, edits):
     van a words.json, a capas.json (la vista previa ya los enseña) y al registro edicion/subtitulos.json, y salen
     de edits. Devuelve cuántos cambió."""
     capas_p, words_p, log_p = _path(proj, 'capas'), os.path.join(proj, 'words.json'), _path(proj, 'subtitulos')
-    if not (os.path.isfile(capas_p) and os.path.isfile(words_p)):
+    C = capas_entrada(proj)             # con los subtítulos sacados de index.html si capas.json no los trae
+    if not (C and os.path.isfile(words_p)):
         return 0
-    C = json.load(open(capas_p, encoding='utf-8'))
     words = json.load(open(words_p, encoding='utf-8'))
     log = json.load(open(log_p, encoding='utf-8')) if os.path.isfile(log_p) else []
     n = 0
@@ -137,7 +235,10 @@ def aplicar_subtitulos(proj, edits):
             edits[g['id']].pop('texts')
     if n:
         json.dump(words, open(words_p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-        json.dump(C, open(capas_p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        if os.path.isfile(capas_p):     # el grupo sacado de index.html no se guarda: sale otra vez de los subtítulos nuevos
+            guardar = json.load(open(capas_p, encoding='utf-8'))
+            guardar['groups'] = [g for g in C['groups'] if not g.get('auto')]
+            json.dump(guardar, open(capas_p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
         json.dump(log, open(log_p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return n
 
@@ -197,6 +298,40 @@ def filtro_audio(proj, pista):
     cad = editado(proj, 'audiofx', {}).get('chains', {}).get(pista) or {}
     parts = [_FX_FFMPEG[n['type']](n.get('params') or {}) for n in cad.get('nodes', []) if n.get('enabled', True) and n.get('type') in _FX_FFMPEG]
     return ','.join(parts)
+
+
+def sonidos(proj, sounds):
+    """Los efectos de sonido de plan.json ("sounds") con lo que el usuario cambió en la pista Sonidos de Mi Estudio, para el script de las
+    pistas cuando el sonido final sale de una mezcla con ffmpeg (en el HTML ya lo pone aplicar.py). snd<N> es sounds[N]. Los quitados no
+    salen; a los movidos les cambia "at" (y "dur" si lo tienen) y el volumen va en "vol" (por 10^(dB/20))."""
+    cambios = editado(proj, 'sonidos', {}).get('items') or {}
+    reloj = None
+    out = []
+    for n, s in enumerate(sounds):
+        e = cambios.get('snd%d' % n)
+        if not isinstance(e, dict):
+            out.append(s)
+            continue
+        if e.get('off'):
+            continue
+        s = dict(s)
+        if e.get('moved') and e.get('from') is not None:
+            at = e['from']
+            a = e.get('anchor') or {}
+            if a.get('seg'):
+                try:
+                    import capas
+                    reloj = reloj or capas.Capas(proj)
+                    at = reloj._time(a['seg'], a.get('src', 0)) or at
+                except (OSError, ValueError, KeyError, IndexError):
+                    pass
+            s['at'] = round(at, 3)
+            if 'dur' in s and e.get('to') is not None:
+                s['dur'] = round(e['to'] - e['from'], 3)
+        if e.get('db'):
+            s['vol'] = round(s.get('vol', 1) * 10 ** (e['db'] / 20), 4)
+        out.append(s)
+    return out
 
 
 def reaplicar_subtitulos(proj):
